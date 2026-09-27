@@ -5,10 +5,12 @@
 // logical = (client - renderOffset) / scale. effectiveDPR = min(dpr, 2);
 // imageSmoothingEnabled = false, re-asserted after every backing-store
 // resize. shadowBlur is reserved for enemy eyes only (§30, §78) — this
-// module never uses it. NO gameplay logic in rendering (§70). The Phase 1
-// scene is an intentional placeholder: sky, deterministic twinkling stars,
-// ground strip, and title. Parallax layers, moon and castle arrive in
-// Phase 4; the active character in Phase 3.
+// module never uses it. NO gameplay logic in rendering (§70).
+// Phase 2 scene: sky, deterministic twinkling stars, the placeholder
+// level geometry, and a placeholder player marker (character-colored
+// hitbox). Parallax layers, moon and castle arrive in Phase 4; the
+// animated character in Phase 3; camera in Phase 4 — world coordinates
+// render directly until then.
 import {
   LOGICAL_W,
   LOGICAL_H,
@@ -18,8 +20,7 @@ import {
   SKY_LOW,
   GROUND_FILL,
   GROUND_EDGE,
-  TEXT_MAIN,
-  TEXT_DIM,
+  CHARACTER_COLORS,
   STAR_TONE,
 } from './constants.js';
 
@@ -87,29 +88,33 @@ export function createRenderer(canvas) {
     ctx.globalAlpha = 1;
   }
 
-  function drawGround() {
-    ctx.fillStyle = GROUND_FILL;
-    ctx.fillRect(0, LOGICAL_H - 64, LOGICAL_W, 64);
-    ctx.fillStyle = GROUND_EDGE;
-    ctx.fillRect(0, LOGICAL_H - 64, LOGICAL_W, 3);
+  function drawPlatforms(platforms) {
+    // Placeholder geometry rendering (§55 platform tones). The pit between
+    // ground A and ground B is simply void — sky shows through.
+    for (let i = 0; i < platforms.length; i += 1) {
+      const p = platforms[i];
+      ctx.fillStyle = GROUND_FILL;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillStyle = GROUND_EDGE;
+      ctx.fillRect(p.x, p.y, p.w, 3);            // lit top edge
+    }
   }
 
-  function drawTitle() {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = TEXT_MAIN;
-    ctx.font = '700 46px system-ui, sans-serif';
-    ctx.fillText('SHADOWS OF THE MOON', LOGICAL_W / 2, 296);
-    ctx.fillStyle = TEXT_DIM;
-    ctx.font = '400 16px system-ui, sans-serif';
-    ctx.fillText('The moon is stolen. Three warriors walk the night.', LOGICAL_W / 2, 334);
+  function drawPlayer(player) {
+    // Placeholder marker: the character-colored hitbox. Phase 3 replaces
+    // this with the real procedural character rendering and animation.
+    const color = CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara;
+    ctx.fillStyle = color;
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    ctx.fillStyle = 'rgba(232, 236, 255, 0.25)';
+    ctx.fillRect(player.x, player.y, player.w, 3);
   }
 
-  function render(game) {
+  function render(game, level, player) {
     drawSky();
     drawStars(game.gameTime);
-    drawGround();
-    drawTitle();
+    drawPlatforms(level.platforms);
+    drawPlayer(player);
   }
 
   resize();
