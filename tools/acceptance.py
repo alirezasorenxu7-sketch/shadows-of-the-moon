@@ -233,6 +233,212 @@ def load_check(browser) -> Result:
         page.close()
 
 
+# ------------------------------------------------------------------ phase 1 tests
+
+# Harness-side test instrumentation (SPEC §73): the flag is injected BEFORE
+# navigation; production behavior never depends on it. The visibility shim
+# lets the harness drive document.visibilityState in headless Chromium.
+TEST_INIT_SCRIPT = """
+window.__SOM_TEST__ = true;
+(() => {
+  let vis = 'visible';
+  try {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => vis });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => vis !== 'visible' });
+  } catch (err) { /* shim best-effort */ }
+  window.__somSetVisibility = (state) => {
+    vis = String(state);
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+})();
+"""
+
+
+def _new_test_context(browser, viewport=None, has_touch=False):
+    kwargs = {"viewport": viewport or {"width": 1280, "height": 720}}
+    if has_touch:
+        kwargs["has_touch"] = True
+    ctx = browser.new_context(**kwargs)
+    ctx.add_init_script(TEST_INIT_SCRIPT)
+    return ctx
+
+
+def _boot_page(ctx):
+    page = ctx.new_page()
+    page.goto(BASE_URL, wait_until="load", timeout=15000)
+    page.wait_for_function("() => window.__SOM_BOOTED__ === true", timeout=5000)
+    page.wait_for_function(
+        "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.renderCount > 5",
+        timeout=5000)
+    return page
+
+
+def _metrics(page):
+    return page.evaluate("() => window.__SOM_METRICS__")
+
+
+def test_visibility_pause(browser):
+    """SPEC §79.7: hide tab for 30 s, return, accumulator reset, no physics
+    explosion, remains paused, explicit Resume required."""
+    name = "test: visibility pause semantics (§79.7)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    try:
+        if _metrics(page)["paused"]:
+            return Result(name, "FAIL", "game was paused before the test began")
+        page.evaluate("() => window.__somSetVisibility('hidden')")
+        page.wait_for_timeout(250)             # let the pause settle
+        m_hidden = _metrics(page)
+        t0 = m_hidden["gameTime"]
+        s0 = m_hidden["simStepsTotal"]
+        if not m_hidden["paused"]:
+            return Result(name, "FAIL", "hidden document did not pause the game")
+        page.wait_for_timeout(30_000)          # §79.7 step 3: 30 s hidden
+        page.evaluate("() => window.__somSetVisibility('visible')")
+        page.wait_for_timeout(400)
+        m1 = _metrics(page)
+        problems = []
+        if not m1["paused"]:
+            problems.append("did not remain paused after return")
+        if m1["accumulator"] != 0:
+            problems.append(f"accumulator not reset ({m1['accumulator']})")
+        if abs(m1["gameTime"] - t0) > 1e-9:
+            problems.append(f"gameTime advanced while hidden ({m1['gameTime'] - t0:+.4f}s)")
+        if m1["simStepsTotal"] != s0:
+            problems.append("simulation stepped while hidden (physics explosion)")
+        if m1["maxFrameSteps"] > 5:
+            problems.append(f"maxFrameSteps={m1['maxFrameSteps']} exceeds cap")
+        if not page.locator("#pause-overlay").is_visible():
+            problems.append("pause overlay not visible after return")
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        page.keyboard.press("R")              # §79.7 step 8: explicit Resume
+        page.wait_for_timeout(500)
+        m2 = _metrics(page)
+        if m2["paused"] or m2["gameTime"] <= t0:
+            return Result(name, "FAIL", "R did not explicitly resume gameplay")
+        return Result(name, "PASS",
+                      "30 s hidden: frozen, accumulator 0, overlay shown, R resumed")
+    finally:
+        ctx.close()
+
+
+def test_multi_touch(browser):
+    """SPEC §79.8: simultaneous Left + Jump + Attack for >= 500 ms; all
+    register independently."""
+    name = "test: multi-touch Left+Jump+Attack >= 500ms (§79.8)"
+    ctx = _new_test_context(browser, has_touch=True)
+    page = _boot_page(ctx)
+    try:
+        if _metrics(page)["paused"]:
+            return Result(name, "FAIL", "game paused at boot")
+        points = []
+        for sel in ("#btn-left", "#btn-jump", "#btn-attack"):
+            if not page.locator(sel).is_visible():
+                return Result(name, "FAIL", f"{sel} not visible")
+            box = page.locator(sel).bounding_box()
+            if box is None:
+                return Result(name, "FAIL", f"{sel} has no bounding box")
+            points.append({
+                "x": box["x"] + box["width"] / 2,
+                "y": box["y"] + box["height"] / 2,
+                "id": len(points) + 1,
+            })
+        cdp = ctx.new_cdp_session(page)
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": points})
+        page.wait_for_timeout(600)             # >= 500 ms hold
+        m = _metrics(page)
+        inp = m["input"]
+        problems = []
+        if not inp["left"]:
+            problems.append("left not held")
+        if not inp["jump"]:
+            problems.append("jump not held")
+        if not inp["attack"]:
+            problems.append("attack not held")
+        if inp["jumpCount"] < 1:
+            problems.append("jump press not registered")
+        if inp["attackCount"] < 1:
+            problems.append("attack press not registered")
+        if inp["activeTouches"] < 3:
+            problems.append(f"activeTouches={inp['activeTouches']} (< 3)")
+        cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        page.wait_for_timeout(250)
+        m2 = _metrics(page)
+        if m2["input"]["left"] or m2["input"]["jump"] or m2["input"]["attack"]:
+            problems.append("buttons stuck after release")
+        if m2["input"]["activeTouches"] != 0:
+            problems.append(f"activeTouches after release={m2['input']['activeTouches']}")
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS", "3 simultaneous touches registered independently")
+    finally:
+        ctx.close()
+
+
+def test_portrait_behavior(browser):
+    """SPEC §79.13: portrait pauses + overlay + input disabled + frozen;
+    landscape return stays paused until explicit Resume."""
+    name = "test: portrait overlay; landscape stays paused (§79.13)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    try:
+        m0 = _metrics(page)
+        t0 = m0["gameTime"]
+        if m0["paused"]:
+            return Result(name, "FAIL", "game paused at boot")
+        page.set_viewport_size({"width": 720, "height": 1280})
+        page.wait_for_timeout(500)
+        m1 = _metrics(page)
+        problems = []
+        if not m1["paused"]:
+            problems.append("portrait did not pause gameplay")
+        if not page.locator("#rotation-overlay").is_visible():
+            problems.append("rotation overlay not visible")
+        if page.locator("#btn-left").is_visible() or page.locator("#btn-jump").is_visible():
+            problems.append("gameplay touch controls not hidden")
+        if m1["input"]["enabled"]:
+            problems.append("gameplay input not disabled")
+        page.keyboard.down("KeyA")
+        page.wait_for_timeout(300)
+        m_k = _metrics(page)
+        page.keyboard.up("KeyA")
+        if m_k["input"]["left"]:
+            problems.append("keyboard gameplay input registered while paused")
+        if abs(m1["gameTime"] - t0) > 1e-9 or abs(m_k["gameTime"] - t0) > 1e-9:
+            problems.append("physics advanced while portrait-paused")
+        page.set_viewport_size({"width": 1280, "height": 720})
+        page.wait_for_timeout(500)
+        m2 = _metrics(page)
+        if page.locator("#rotation-overlay").is_visible():
+            problems.append("rotation overlay still visible in landscape")
+        if not m2["paused"]:
+            problems.append("auto-resumed on landscape return (forbidden, §8.2)")
+        if abs(m2["gameTime"] - t0) > 1e-9:
+            problems.append("gameTime changed before explicit resume")
+        page.keyboard.press("R")
+        page.wait_for_timeout(500)
+        m3 = _metrics(page)
+        if m3["paused"] or m3["gameTime"] <= t0:
+            problems.append("R did not resume after landscape return")
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS",
+                      "portrait: overlay+paused+frozen; landscape stayed paused; R resumed")
+    finally:
+        ctx.close()
+
+
+_IMPLS = {
+    "visibility_pause": test_visibility_pause,
+    "multi_touch": test_multi_touch,
+    "portrait_behavior": test_portrait_behavior,
+}
+for _t in TESTS:
+    if _t["id"] in _IMPLS:
+        _t["impl"] = _IMPLS[_t["id"]]
+
+
 # ------------------------------------------------------------------ reporting
 
 def run_screenshot(name: str) -> int:
