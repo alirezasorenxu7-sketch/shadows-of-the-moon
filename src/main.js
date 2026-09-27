@@ -1,17 +1,17 @@
 // Shadows of the Moon — entry point (SPEC §69, §8, §73, §74).
 // Creates the single authoritative `game` object (§71), wires the loop,
 // input, renderer, pause semantics (portrait / visibility / manual — one
-// shared resume rule, NEVER automatic), and the DOM overlays. Gameplay
-// systems (player, enemies, level) arrive with Phase 2+; this phase owns
-// the loop, input, time domains, and pause/resume fundamentals.
+// shared resume rule, NEVER automatic), and the DOM overlays. Phase 2 adds
+// the player controller: physics, jumping, collision, and the death
+// foundation (§36–§39, §43).
 import './constants.js';
 import { createInput } from './input.js';
 import './physics.js';
 import './ai.js';
-import './level.js';
+import { LEVEL_DATA, buildLevel } from './level.js';
 import { createRenderer } from './render.js';
 import { createLoop } from './loop.js';
-import './entities/player.js';
+import { createPlayer, updatePlayer, playerSnapshot } from './entities/player.js';
 import './entities/enemy.js';
 import './entities/projectile.js';
 import './entities/particle.js';
@@ -29,8 +29,12 @@ const game = {
   slowMoActive: false,
   paused: false,
   pauseReasons: new Set(),
+  activeCheckpoint: null,   // no checkpoint until Phase 11 (§44)
+  lastDeath: null,          // set on the first death of the run (§43)
 };
 
+const level = buildLevel(LEVEL_DATA);
+const player = createPlayer(level);   // a new run starts with Sara (§47)
 const renderer = createRenderer(canvas);
 const input = createInput({
   game,
@@ -38,10 +42,13 @@ const input = createInput({
 });
 const loop = createLoop({
   game,
-  update: () => {
-    input.drainEvents();   // Phase 2+ consumes jump/attack/... edges
+  update: (dt) => {
+    // Player domain keeps FIXED_DT even during slow-motion (§10); the
+    // enemy domain (dt * factor) is consumed from Phase 6 onward.
+    const events = input.drainEvents();
+    updatePlayer(game, player, input.heldState(), events, dt, level);
   },
-  render: () => renderer.render(game),
+  render: () => renderer.render(game, level, player),
   onStateChange: updateOverlays,
   onFrame: pushMetrics,
 });
@@ -132,6 +139,11 @@ function pushMetrics(frameInfo) {
   M.maxFrameSteps = L.maxFrameSteps;
   M.lastRenderTime = frameInfo.now;
   M.input = input.snapshot();
+  M.player = playerSnapshot(player);
+  const zone = level.zoneAt(player.x);
+  M.zone = { id: zone.id, groundY: zone.groundY };
+  M.activeCheckpoint = game.activeCheckpoint;
+  M.lastDeath = game.lastDeath;
   M.renderTimestamps.push(frameInfo.now);
   if (M.renderTimestamps.length > 240) M.renderTimestamps.shift();
 }
@@ -148,6 +160,10 @@ if (window.__SOM_TEST__ === true) {
     maxFrameSteps: 0,
     lastRenderTime: 0,
     input: null,
+    player: null,
+    zone: null,
+    activeCheckpoint: null,
+    lastDeath: null,
     renderTimestamps: [],
   };
 }

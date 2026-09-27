@@ -429,10 +429,243 @@ def test_portrait_behavior(browser):
         ctx.close()
 
 
+# ------------------------------------------------------------------ phase 2 tests
+
+# In-page maneuver sampler for §79.1: watches the ACTUAL simulation state via
+# __SOM_METRICS__ (§73/§74) once per animation frame and drives the second
+# jump through a REAL keydown event at apex timing. The takeoff reference is
+# seeded from the known-grounded state so a first tick landing mid-flight
+# (rAF scheduling race) cannot lose the measurement. Space is HELD for the
+# whole maneuver (§38: "hold Jump during first jump; not release early");
+# the second press is a distinct physical source (ArrowUp) — never a
+# consecutive-frame jump call.
+_DJ_SAMPLER = """() => {
+  const M0 = window.__SOM_METRICS__;
+  const p0 = M0 && M0.player;
+  window.__somDJ = {
+    fired: false, takeoffFeet: null, peakFeet: null,
+    lastGroundedFeet: (p0 && p0.onGround) ? p0.y + p0.h : null,
+    jumpsAtFire: -1, vyAtFire: null, airborneAtFire: null,
+    maxJumpsUsed: 0, tTakeoff: null, tFire: null,
+  };
+  const tick = () => {
+    const M = window.__SOM_METRICS__;
+    if (!M || !M.player) return requestAnimationFrame(tick);
+    const p = M.player;
+    const feet = p.y + p.h;
+    if (p.jumpsUsed > window.__somDJ.maxJumpsUsed) {
+      window.__somDJ.maxJumpsUsed = p.jumpsUsed;
+    }
+    if (p.onGround) {
+      window.__somDJ.lastGroundedFeet = feet;
+      return requestAnimationFrame(tick);
+    }
+    if (window.__somDJ.lastGroundedFeet != null
+        && window.__somDJ.takeoffFeet == null && p.jumpsUsed >= 1) {
+      window.__somDJ.takeoffFeet = window.__somDJ.lastGroundedFeet;
+      window.__somDJ.tTakeoff = M.gameTime;
+    }
+    if (window.__somDJ.takeoffFeet != null) {
+      window.__somDJ.peakFeet = Math.min(window.__somDJ.peakFeet ?? Infinity, feet);
+    }
+    if (!window.__somDJ.fired && window.__somDJ.takeoffFeet != null
+        && p.jumpsUsed === 1 && Math.abs(p.vy) <= 90) {
+      window.__somDJ.fired = true;
+      window.__somDJ.jumpsAtFire = p.jumpsUsed;
+      window.__somDJ.vyAtFire = p.vy;
+      window.__somDJ.airborneAtFire = !p.onGround;
+      window.__somDJ.tFire = M.gameTime;
+      window.dispatchEvent(new KeyboardEvent('keydown', {code: 'ArrowUp'}));
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}"""
+
+
+def test_sara_double_jump(browser):
+    """SPEC §79.1 (procedure §38): hold Jump through the first jump, trigger
+    the second jump at apex timing while airborne via a distinct press, and
+    measure feet-at-first-takeoff to highest-feet >= 260px from the actual
+    simulation state."""
+    name = "test: Sara double jump >= 260px (§79.1)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        m = _metrics(page)
+        p = m["player"]
+        if p["character"] != "sara":
+            return Result(name, "FAIL", f"active character is {p['character']}, not sara")
+        if not p["onGround"] or abs(p["y"] - 608) > 0.001:
+            return Result(name, "FAIL", "player not standing at spawn before the maneuver")
+        page.evaluate(_DJ_SAMPLER)
+        page.keyboard.down("Space")          # HELD through the entire maneuver
+        deadline = time.time() + 4.0
+        landed = False
+        while time.time() < deadline:
+            page.wait_for_timeout(100)
+            p = _metrics(page)["player"]
+            if p["onGround"] and p["jumpsUsed"] == 0 and page.evaluate("() => window.__somDJ.takeoffFeet != null"):
+                landed = True
+                break
+        page.wait_for_timeout(150)           # let the sampler see the landing
+        dj = page.evaluate("() => window.__somDJ")
+        m = _metrics(page)
+        page.keyboard.up("Space")
+        page.evaluate("() => window.dispatchEvent(new KeyboardEvent('keyup', {code: 'ArrowUp'}))")
+        problems = []
+        if not landed:
+            problems.append("maneuver never completed (no landing after double jump)")
+        if not dj["fired"]:
+            problems.append("second jump was never triggered at apex")
+        elif not dj["airborneAtFire"] or dj["jumpsAtFire"] != 1:
+            problems.append("second jump not triggered while airborne after the first")
+        if dj["maxJumpsUsed"] < 2:
+            problems.append(f"max jumpsUsed observed = {dj['maxJumpsUsed']} (< 2)")
+        if dj["tTakeoff"] is None or dj["tFire"] is None:
+            problems.append("takeoff/fire timing not observed")
+        elif dj["tFire"] - dj["tTakeoff"] < 0.15:
+            problems.append(
+                f"jump presses only {dj['tFire'] - dj['tTakeoff']:.3f}s apart "
+                "(consecutive-frame jump calls, forbidden by §38)")
+        height = None
+        if dj["takeoffFeet"] is not None and dj["peakFeet"] is not None:
+            height = dj["takeoffFeet"] - dj["peakFeet"]
+            if height < 260:
+                problems.append(f"measured double-jump height {height:.2f}px < 260px (§38)")
+        else:
+            problems.append("takeoff/peak not measured")
+        if m["input"]["jumpCount"] != 2:
+            problems.append(f"jump press count = {m['input']['jumpCount']} (expected 2: one Space + one ArrowUp)")
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS",
+                      f"height {height:.1f}px >= 260px; second jump airborne at "
+                      f"vy={dj['vyAtFire']:.0f}px/s, presses {dj['tFire'] - dj['tTakeoff']:.2f}s apart")
+    finally:
+        ctx.close()
+
+
+def test_horizontal_collision(browser):
+    """SPEC §79.6: run into a wall — no clipping, X corrected, vx = 0 while
+    blocked; position holds after release."""
+    name = "test: horizontal collision resolution (§79.6)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        p = _metrics(page)["player"]
+        if abs(p["x"] - 300) > 0.001 or not p["onGround"]:
+            return Result(name, "FAIL", "player not standing at spawn (x=300) before the run")
+        page.keyboard.down("KeyA")           # hold LEFT into the wall
+        wall_x = 60.0                        # wall right face (platform 0..60)
+        min_x = None
+        settled = None
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            page.wait_for_timeout(100)
+            p = _metrics(page)["player"]
+            min_x = p["x"] if min_x is None else min(min_x, p["x"])
+            if abs(p["x"] - wall_x) < 0.001 and p["vx"] == 0:
+                settled = p
+                break
+        page.keyboard.up("KeyA")
+        page.wait_for_timeout(300)
+        after = _metrics(page)["player"]
+        problems = []
+        if settled is None:
+            problems.append(f"never settled at the wall face (min x observed {min_x})")
+        if min_x is None or min_x > 290:
+            problems.append("player never moved left — collision path not exercised")
+        if min_x is not None and min_x < wall_x - 0.001:
+            problems.append(f"wall clipped: x reached {min_x:.3f} < {wall_x}")
+        if settled is not None and abs(settled["x"] - wall_x) > 0.001:
+            problems.append(f"X not corrected: settled at {settled['x']:.3f}, expected {wall_x}")
+        if settled is not None and settled["vx"] != 0:
+            problems.append(f"vx = {settled['vx']} while blocked (expected 0)")
+        if abs(after["x"] - wall_x) > 0.001 or after["vx"] != 0:
+            problems.append("position/velocity changed after release")
+        if abs(after["y"] - 608) > 0.001:
+            problems.append("vertical position disturbed during a horizontal test")
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS",
+                      f"ran left, corrected to x={wall_x:.0f} exactly, vx=0 while blocked, "
+                      "no clipping, stable after release")
+    finally:
+        ctx.close()
+
+
+def test_fall_death(browser):
+    """SPEC §79.12: without an active checkpoint, falling past
+    zoneGroundY + 400 triggers the final death flow (frozen entity,
+    recorded death, input ignored, no auto-reset)."""
+    name = "test: fall death final flow (§79.12)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        m = _metrics(page)
+        if m["activeCheckpoint"] is not None:
+            return Result(name, "FAIL", "an active checkpoint exists — test requires none (§79.12)")
+        ground_y = m["zone"]["groundY"]
+        threshold = ground_y + 400
+        page.keyboard.down("KeyD")           # walk right into the pit
+        dead_state = None
+        deadline = time.time() + 12.0
+        while time.time() < deadline:
+            page.wait_for_timeout(100)
+            p = _metrics(page)["player"]
+            if p["dead"]:
+                dead_state = p
+                break
+        page.wait_for_timeout(400)           # still holding right: must stay frozen
+        frozen = _metrics(page)["player"]
+        page.keyboard.up("KeyD")
+        problems = []
+        if dead_state is None:
+            return Result(name, "FAIL", "player never died after falling into the pit")
+        if dead_state["deathReason"] != "fall":
+            problems.append(f"deathReason = {dead_state['deathReason']}, expected 'fall'")
+        if dead_state["y"] <= threshold:
+            problems.append(f"y at death {dead_state['y']:.1f} <= groundY+400 ({threshold})")
+        if not _metrics(page)["lastDeath"] or _metrics(page)["lastDeath"]["reason"] != "fall":
+            problems.append("game.lastDeath not recorded for the fall death")
+        if frozen["x"] != dead_state["x"] or frozen["y"] != dead_state["y"]:
+            problems.append("dead player moved while input was held (must be frozen)")
+        if frozen["vx"] != 0 or frozen["vy"] != 0:
+            problems.append(f"dead player velocity ({frozen['vx']}, {frozen['vy']}) nonzero")
+        if not frozen["dead"]:
+            problems.append("death state did not persist (auto-reset forbidden)")
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS",
+                      f"fell past y={threshold:.0f}, deathReason=fall, entity frozen "
+                      f"at y={dead_state['y']:.0f} with input held, no auto-reset")
+    finally:
+        ctx.close()
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
     "portrait_behavior": test_portrait_behavior,
+    "sara_double_jump": test_sara_double_jump,
+    "horizontal_collision": test_horizontal_collision,
+    "fall_death": test_fall_death,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:
