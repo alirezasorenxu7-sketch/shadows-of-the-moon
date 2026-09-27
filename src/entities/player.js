@@ -11,6 +11,13 @@
 // jump cut, two-pass collision, and the shared death system foundation
 // (§43 — fall death past zone groundY + 400, HP death at hp <= 0).
 // Abilities, switching, and i-frames arrive in Phase 7+.
+//
+// Phase 3 adds PRESENTATION-NEUTRAL animation facts on the entity (§71
+// entity-local state): animTime / runTime clocks and lastJumpAt /
+// lastLandAt gameTime stamps. They record WHAT happened (jump fired, landed
+// at t) — the renderer derives poses and §57 squash/stretch from them. They
+// never feed back into gameplay (§57: presentation must not mutate rules),
+// so physics, jump availability, and death logic are untouched.
 import {
   GRAVITY,
   JUMP_SARA,
@@ -61,6 +68,11 @@ export function createPlayer(level, characterKey = 'sara') {
     invuln: 0,             // damage i-frames (seconds; used from Phase 7+)
     dead: false,
     deathReason: null,     // 'fall' | 'hp'
+    // ---- presentation facts (Phase 3; read-only for rendering, §57) ------
+    animTime: 0,           // entity animation clock, seconds (freezes when dead)
+    runTime: 0,            // accumulates only while running on ground
+    lastJumpAt: -1,        // gameTime of the most recent jump takeoff
+    lastLandAt: -1,        // gameTime of the most recent landing
   };
 }
 
@@ -92,6 +104,11 @@ export function updatePlayer(game, player, held, events, dt, level) {
   if (player.dead) return;                       // frozen after death
 
   const roster = ROSTER[player.character];
+  const wasOnGround = player.onGround;           // for the landing stamp
+
+  // ---- animation clocks (presentation facts; no gameplay effect) --------
+  player.animTime += dt;
+  if (player.onGround && player.vx !== 0) player.runTime += dt;
 
   // ---- timers ---------------------------------------------------------------
   if (!player.onGround) player.coyote = Math.max(0, player.coyote - dt);
@@ -122,6 +139,7 @@ export function updatePlayer(game, player, held, events, dt, level) {
       player.coyote = 0;
       player.jumpBuffer = 0;
       player.onGround = false;
+      player.lastJumpAt = game.gameTime;         // §57 stretch trigger fact
     } else if (!player.onGround && !player.coyote && player.jumpsUsed === 1
                && player.maxJumps >= 2) {
       // Sara's second jump: midair only, and only after the first jump
@@ -130,6 +148,7 @@ export function updatePlayer(game, player, held, events, dt, level) {
       player.vy = roster.jumpV;
       player.jumpsUsed = 2;
       player.jumpBuffer = 0;
+      player.lastJumpAt = game.gameTime;         // §57 stretch trigger fact
     }
     // else: buffer stays armed — a landing within JUMP_BUFFER consumes it.
   }
@@ -147,6 +166,7 @@ export function updatePlayer(game, player, held, events, dt, level) {
     // Landing resets airborne jump availability (§37).
     player.jumpsUsed = 0;
     player.coyote = COYOTE_TIME;
+    if (!wasOnGround) player.lastLandAt = game.gameTime;  // §57 squash fact
   }
 
   // ---- death system (§43): fall death and HP death share one path ---------
@@ -178,5 +198,10 @@ export function playerSnapshot(player) {
     jumpBuffer: player.jumpBuffer,
     dead: player.dead,
     deathReason: player.deathReason,
+    // presentation facts (§74 player state instrumentation)
+    animTime: player.animTime,
+    runTime: player.runTime,
+    lastJumpAt: player.lastJumpAt,
+    lastLandAt: player.lastLandAt,
   };
 }
