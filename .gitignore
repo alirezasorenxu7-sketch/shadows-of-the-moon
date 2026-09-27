@@ -1,0 +1,10 @@
+# Shadows of the Moon — .gitignore (per SPEC §76)
+.env
+/state/
+__pycache__/
+*.pyc
+node_modules/
+/screenshots/*.png
+
+# Keep this placeholder (screenshots dir must exist in repo)
+!screenshots/.gitkeep

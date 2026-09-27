@@ -1,0 +1,67 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+      - 'phase/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  acceptance:
+    name: Static checks + phase-aware acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright (test environment only, SPEC §88)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Determine phase from branch (SPEC §88)
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          PHASE="$(printf '%s' "$BRANCH" | sed -nE 's|^phase/([0-9]+)(-.+)?$|\1|p')"
+          if [ -z "$PHASE" ]; then PHASE=14; fi
+          echo "BRANCH=$BRANCH" >> "$GITHUB_ENV"
+          echo "PHASE=$PHASE" >> "$GITHUB_ENV"
+          echo "branch: $BRANCH -> phase: $PHASE"
+
+      - name: Start local test server (SPEC §82)
+        run: |
+          python -m http.server 8000 --bind 127.0.0.1 &
+          echo $! > "$RUNNER_TEMP/som_server.pid"
+          for _ in $(seq 1 60); do
+            if curl -sf -o /dev/null http://127.0.0.1:8000/; then break; fi
+            sleep 0.5
+          done
+          curl -sf -o /dev/null http://127.0.0.1:8000/ || { echo "test server failed to become ready"; exit 1; }
+
+      - name: Run acceptance tests
+        run: python tools/acceptance.py --phase "${{ env.PHASE }}"
+
+      - name: Upload screenshots artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: screenshots/
+          if-no-files-found: ignore
+
+      - name: Stop test server
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/som_server.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/som_server.pid")" 2>/dev/null || true
+          fi

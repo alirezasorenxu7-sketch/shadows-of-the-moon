@@ -1,0 +1,2189 @@
+# SPEC — Shadows of the Moon
+
+> Mirror of the authoritative specification supplied by the project owner
+> (Parts 1–3, sections 1–110). This document is the SINGLE SOURCE OF TRUTH.
+>
+> When two statements conflict, use this priority order:
+> 1. Locked technical decisions
+> 2. Explicit gameplay rules
+> 3. Acceptance tests
+> 4. Performance and security constraints
+> 5. Visual requirements
+> 6. Optional polish
+>
+> If genuine ambiguity remains, ask the user. Do not ask questions already
+> answered by the SPEC.
+
+==================================================
+1. PROJECT
+==================================================
+
+Project title: Shadows of the Moon
+
+Genre: 2D side-scrolling platformer.
+
+Core experience: A cinematic, atmospheric, responsive platformer built entirely with procedural Canvas 2D graphics.
+
+==================================================
+2. FINAL DELIVERABLE
+==================================================
+
+A complete playable browser game.
+
+Required technology:
+- HTML
+- CSS
+- JavaScript
+- ES Modules
+- Canvas 2D API
+- Browser APIs only
+
+Must run directly in a browser.
+Must not require a build step.
+Must not require npm at runtime.
+Must be deployable as a static GitHub Pages site.
+
+Local dev/test server: python -m http.server 8000 --bind 127.0.0.1
+
+The Python server is for development/testing only. NOT backend logic.
+All gameplay executes client-side.
+
+Runtime must work WITHOUT: backend services, database, API server, server-side logic, runtime network requests, CDN assets, external game services.
+
+All visuals are procedural.
+No external image, sprite, video, audio, or font assets.
+
+==================================================
+3. ENGINE DECISION — IMMUTABLE
+==================================================
+
+REQUIRED:
+- Pure HTML
+- Pure CSS
+- Pure JavaScript
+- ES Modules
+- Canvas 2D
+
+FORBIDDEN:
+- WebGL, Three.js, Babylon.js, PixiJS
+- Phaser, Kaplay, Melon.js, Impact.js, any game framework
+- TypeScript, CoffeeScript, any compile-to-JS language
+- React, Vue, Svelte, Solid, UI frameworks
+- Vite, Webpack, Rollup, Parcel, esbuild, SWC, any bundler
+- npm/yarn/pnpm runtime dependencies
+- Godot, Unity, Unreal, Pygame, Love2D, Bevy
+- CDN runtime dependencies
+- backend, database
+
+Never substitute another engine.
+Python is allowed only for dev/test/orchestration scripts.
+Playwright is allowed only as a test dependency.
+
+==================================================
+4. STORY
+==================================================
+
+The land is Midnight. The sun disappeared long ago. The moon is the only remaining major source of light. The Shadows have stolen the moon and imprisoned it beyond a dark castle. Three warriors unite to recover it.
+
+Sara:
+- Element: Wind
+- Color: Blue #4a9eff
+- Traits: fast movement, double jump, dash
+
+Raha:
+- Element: Mountain
+- Color: Red #e63946
+- Traits: high HP, slam, shockwave
+
+Aram:
+- Element: Shadow
+- Color: Purple #9d4edd
+- Traits: magic, slow-motion, shield
+
+All three available from the beginning.
+NO XP, NO unlock progression, NO level-up, NO skill tree, NO equipment progression, NO persistent power progression.
+
+==================================================
+5. PLATFORM TARGETS
+==================================================
+
+Build/test: Cloud Linux, Python 3, Python Playwright, Headless Chromium.
+
+Runtime: Windows desktop, Android, iPhone/iOS.
+
+Keyboard intended only for desktop/testing.
+
+Required env vars:
+GITHUB_TOKEN
+GITHUB_REPO
+TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
+
+GITHUB_REPO format: owner/repository
+
+Never print any secret value.
+
+==================================================
+6. LOCKED PLATFORM DECISIONS
+==================================================
+
+- Landscape gameplay only
+- Portrait rotation overlay
+- Fixed touch controls
+- No swipe controls
+- Logical resolution 1280x720
+- 16:9 aspect ratio
+- contain scaling
+- letterboxing allowed
+- render cap 60 FPS
+- fullscreen attempt on first trusted gameplay gesture
+- fullscreen failure never blocks gameplay
+- touch-action:none on canvas and buttons
+- minimum 3 simultaneous touches
+- safe-area-inset support
+- automatic visibility pause
+- keyboard controls desktop-only
+
+==================================================
+7. RESPONSIVE CANVAS
+==================================================
+
+Logical resolution: 1280 x 720
+Strict 16:9.
+
+Contain scaling:
+scale = min(viewportWidth / 1280, viewportHeight / 720)
+
+Never stretch X and Y independently.
+Letterbox/pillarbox allowed.
+
+Touch coordinates mapped with the SAME transform as rendering:
+logicalX = (clientX - renderOffsetX) / scale
+logicalY = (clientY - renderOffsetY) / scale
+
+DPR: effectiveDPR = min(window.devicePixelRatio || 1, 2)
+
+canvasContext.imageSmoothingEnabled = false
+
+==================================================
+8. ORIENTATION AND PAUSE SEMANTICS
+==================================================
+
+Portrait and visibility pause share one resume rule.
+The game NEVER auto-resumes after a pause condition.
+
+8.1 Entering a pause condition
+When entering: portrait mode OR hidden document OR manual pause:
+
+- pause gameplay simulation
+- stop gameTime
+- reset fixed-step accumulator to 0
+- disable gameplay input
+- hide gameplay touch controls
+- keep physics frozen
+
+Manual pause shows pause overlay.
+Portrait shows rotation overlay.
+Visibility pause uses pause overlay after document becomes visible.
+
+8.2 Portrait
+Viewport becomes portrait:
+- pause, disable gameplay input, hide controls, show rotation overlay, do not advance physics
+
+Returns to landscape:
+- hide rotation overlay
+- REMAIN PAUSED
+- require explicit Resume
+
+8.3 Visibility
+Document hidden:
+- pause, reset accumulator to 0, disable gameplay input, hide controls
+
+Document visible again:
+- remain paused
+- reset accumulator again
+- require explicit Resume
+
+8.4 Explicit Resume
+Permitted only when: document visible AND viewport landscape.
+
+Resume sources: Resume UI button, desktop keyboard R.
+
+A condition disappearing NEVER auto-resumes gameplay.
+
+==================================================
+9. TIME MODEL
+==================================================
+
+ONE global gameplay clock: gameTime
+Do not create a second global gameplay clock.
+
+fixedDt = 1 / 60
+
+Pause: gameTime does not advance.
+
+Hit-stop:
+- gameplay simulation freezes
+- gameTime does not advance
+- input continues, UI continues, rendering continues
+- presentation-only effects may continue
+- duration: 0.06 to 0.08 seconds (choose one deterministic value)
+
+==================================================
+10. SLOW-MOTION TIME DOMAINS
+==================================================
+
+During Aram's Slow-motion:
+
+Player simulation: 1.0
+Projectile simulation: 1.0
+Camera gameplay update: 1.0
+Particles: 1.0
+Enemy movement: 0.35
+Enemy AI timers: 0.35
+Enemy attack wind-up: 0.35
+Enemy attack cooldown: 0.35
+Enemy stagger duration: 0.35
+Enemy return timer: 0.35
+Enemy alert timer: 0.35
+Enemy edge-detection pause: 0.35
+
+enemySimDt = fixedDt * slowMotionFactor
+where slowMotionFactor = 0.35 during Slow-motion, 1.0 otherwise.
+
+Do NOT multiply enemy velocity by 0.35 AND use enemySimDt=0.35.
+Apply the slowdown EXACTLY ONCE through the simulation delta.
+
+Adaptive difficulty is separate:
+effectiveEnemySpeed = authoredSpeed * adaptiveSpeedMultiplier
+Then integrate using enemySimDt.
+
+==================================================
+11. COOLDOWNS
+==================================================
+
+TWO categories only.
+
+11.1 Player ability cooldowns:
+- use global gameTime
+- NOT slowed by Aram Slow-motion
+- freeze during Pause
+- per-character, independent
+- authoritative
+- sole source of truth for cooldown availability
+- UI derives from same state
+- UI animation timing NEVER makes an ability available early
+
+11.2 Enemy AI timers:
+- remaining-duration values
+- decrement using enemySimDt
+- slowed by Slow-motion
+- freeze during Pause
+
+Enemy AI timers include: alert delay, attack wind-up, attack cooldown, stagger duration, return timer, edge-detection pause, Brute radial cooldown.
+
+Presentation-only timers are outside these categories and NEVER affect gameplay availability.
+
+==================================================
+12. MAIN GAME LOOP
+==================================================
+
+- requestAnimationFrame
+- fixed timestep
+- accumulator
+- 60 Hz physics
+- max 5 simulation steps per render callback
+- wall-clock delta cap 0.1 s
+
+Structure:
+1. obtain wall-clock delta
+2. clamp to 0.1 s
+3. accumulate
+4. execute up to 5 fixed steps
+5. subtract processed time
+6. render only if 60 FPS gate allows
+
+Never use unbounded catch-up.
+On visibility/orientation pause: accumulator = 0
+
+==================================================
+13. 60 FPS RENDER GATE
+==================================================
+
+Never intentionally render above 60 FPS.
+requestAnimationFrame may fire at 60/90/120/144 Hz.
+
+Gate rendering to approximately 1000/60 ms between actual renders.
+
+Maintain lastRenderTime.
+Do NOT update lastRenderTime when render skipped.
+Physics accumulation continues independently.
+Do NOT skip physics because render was skipped.
+Render cap is presentation-only.
+
+==================================================
+14. TOUCH INPUT
+==================================================
+
+Fixed-position DOM buttons. No swipe.
+
+Every gameplay touch button MUST:
+- use position:fixed
+- respect safe-area-inset
+- use touch-action:none
+- have own touchstart, touchend, touchcancel handlers
+- use passive:false where preventDefault() called
+- not depend on click
+- not use event delegation
+
+Track each active touch separately.
+At least 3 simultaneous touches required.
+
+Required simultaneous example: movement + jump + attack.
+
+Desktop keyboard handling SEPARATE.
+
+Optional navigator.vibrate(...) must fail gracefully.
+
+==================================================
+15. TOUCH BUTTON LAYOUT
+==================================================
+
+Minimum visual dimensions: 56 x 56
+Ideal: 70–80 px
+
+Buttons:
+Left: bottom-left, 70x70, hold
+Right: beside Left, 70x70, hold
+Jump: bottom-right, 80x80, tap
+Attack: upper-right, 60x60, tap
+Special: right-middle, 60x60, tap/hold
+Sara selector: bottom-center, 56x56, tap
+Raha selector: bottom-center, 56x56, tap
+Aram selector: bottom-center, 56x56, tap
+Pause: top-right, 56x56, tap
+
+Default opacity 0.5, active 0.9.
+
+Hit targets expand 10px on all sides.
+Expanded regions must NOT overlap adjacent controls.
+If overlap would occur, split at midpoint between adjacent button centers.
+
+Gameplay touch controls HIDDEN during Pause and Portrait.
+
+==================================================
+16. KEYBOARD MAPPING
+==================================================
+
+A / Left Arrow      move left
+D / Right Arrow     move right
+Space / Up Arrow    jump
+J                   attack
+K                   special
+1                   select Sara
+2                   select Raha
+3                   select Aram
+Escape              pause
+R                   explicit resume
+
+==================================================
+17. FIRST-GESTURE FULLSCREEN
+==================================================
+
+First trusted user gesture that starts a new run MUST attempt fullscreen.
+Typical trigger: Start Journey button.
+
+If rejected:
+- continue normally
+- do not block gameplay
+- do not crash
+- do not retry every frame
+
+Best-effort.
+
+==================================================
+18. CHARACTER ROSTER
+==================================================
+
+Base max HP:
+Sara: 5
+Raha: 8
+Aram: 6
+
+18.1 Sara
+Wind. #4a9eff. Visual 28 px. Hitbox 30x48.
+Appearance: slender, long blonde hair #e8d174, blue tunic #4a9eff, darker blue #1e5aa8, short cloak #1e5aa8, brown boots #6a4a30.
+Animations: idle (bob + hair sway), attack (quick arm extension), special (crouch + blue afterimage).
+Abilities: double jump, dash, knife.
+
+18.2 Raha
+Mountain. #e63946. Visual 36 px. Hitbox 34x48.
+Appearance: broad, dark spiky hair #241812, dark armor #2a2a2a, red tunic #e63946, long red scarf #8a1f2a, dark boots #1a0d0d.
+Animations: idle (chest rise/fall), attack (wide arm swing), special (airborne tuck).
+Abilities: slam, shockwave.
+
+18.3 Aram
+Shadow. #9d4edd. Visual 30 px. Hitbox 32x48.
+Appearance: slim, silver-white hair #eee8ff, outer robe #9d4edd, inner robe #1a1030, orbiting orb #c77dff.
+Animations: idle (subtle float), attack (point forward + purple glow), special (outline pulse).
+Abilities: magic, slow-motion, shield.
+
+==================================================
+19. HEALTH AND HEART CONTAINERS
+==================================================
+
+Base max HP per character.
+Heart containers are GLOBAL RUN-STATE upgrades, not character-specific.
+
+Exactly 3 heart containers. Exactly 1 per zone.
+
+heartCount
+effectiveMaxHp = baseMaxHp + heartCount
+Maximum: baseMaxHp + 3
+
+Heart containers:
+- reset at start of new run
+- NOT persisted to localStorage
+- remain collected after checkpoint respawn
+- remain collected after Restart Zone
+
+Health pickups: 10 total.
+Zone 1 = 3, Zone 2 = 3, Zone 3 = 4.
+
+Each restores exactly 1 HP.
+HP cannot exceed effective max HP.
+Each has fixed authored ID.
+Collected health pickups remain collected for entire current run.
+
+==================================================
+20. CHARACTER SWITCHING
+==================================================
+
+All three unlocked from start.
+
+newHp = round(newEffectiveMaxHp * (currentHp / oldEffectiveMaxHp))
+Clamp: 0 .. newEffectiveMaxHp
+
+invulnerabilityRemaining = max(existingInvulnerabilityRemaining, 0.35)
+Do NOT add durations.
+
+Blocked while: Sara Dash active, Raha Slam active, player dead, death screen, victory screen.
+
+Cooldowns remain independent.
+
+==================================================
+21. COMBAT DAMAGE
+==================================================
+
+Player damage:
+Sara knife: 1
+Raha shockwave: 1
+Raha slam impact: 2
+Aram magic shot: 1
+Sara dash: 0
+Stomp: 1
+
+Enemy contact damage:
+Patroller: 1
+Chaser: 1
+Armored: 1
+Brute: 2
+
+==================================================
+22. PLAYER DAMAGE INVULNERABILITY
+==================================================
+
+After damage that actually decreases HP:
+1.0 second invulnerability.
+
+No contact damage, no Brute radial, no projectile, no stacking.
+
+Visual: sprite flashes ~20 Hz.
+
+A hit blocked by Shield or existing invuln:
+- no HP reduction
+- no damageTaken increase
+- no Combo reset
+
+==================================================
+23. SARA ABILITIES
+==================================================
+
+Knife: J, 0.30 s cooldown, 1 damage, instant.
+Dash: tap K, 0.22 s duration, 1.4 s cooldown, 0 damage.
+Dash is mobility only. No inherent invulnerability.
+
+==================================================
+24. RAHA ABILITIES
+==================================================
+
+Shockwave: tap J, 0.55 s cooldown, 1 damage, instant.
+Slam: hold K airborne, 1.8 s cooldown.
+
+Airborne Slam: enters fast-fall, removes fall-speed cap during descent, on landing generates 90px radial impact.
+
+The 90px impact:
+- deals 2 damage to enemies intersecting
+- breaks breakables intersecting
+- large camera shake
+
+Grounded K: same 90px impact, no fast-fall.
+
+Deterministic circle-vs-AABB intersection.
+
+==================================================
+25. ARAM K TAP/HOLD
+==================================================
+
+Threshold: 300 ms
+
+On K touch/start: record press time, do not immediately choose.
+
+Released before 300ms → Slow-motion
+Held to 300ms → Shield
+
+Once triggered, same K press cannot trigger the other.
+
+If requested ability on cooldown: do nothing. Do NOT silently convert.
+
+If one Aram K ability currently active: other K ability cannot activate.
+
+25.1 Slow-motion
+Duration: 3.0 s. Cooldown: 3.5 s.
+Player at 1.0 sim. Enemy systems at 0.35.
+
+25.2 Shield
+Duration: 1.4 s. Cooldown: 2.5 s.
+Fully prevents damage while active.
+
+25.3 Magic
+J, 0.36 s cooldown, 1 damage.
+
+==================================================
+26. COOLDOWN UI
+==================================================
+
+Primary special:
+Sara: Dash
+Raha: Slam
+Aram: Slow-motion
+
+Display primary as half-circle ring.
+Shield shown as smaller secondary availability indicator.
+UI derives from same authoritative state.
+Never maintain independent UI cooldown timer.
+
+==================================================
+27. ENEMY HP
+==================================================
+
+Patroller: 1
+Chaser: 1
+Armored: 2
+Brute: 3
+
+==================================================
+28. ENEMY IDENTITY
+==================================================
+
+Every enemy in LEVEL_DATA has a fixed stable string ID.
+Examples: z1_enemy_001, z1_enemy_002, z2_enemy_001, z3_enemy_005
+
+IDs: authored, stable, deterministic, never runtime-generated.
+
+Run state: defeatedEnemyIds (Set or equivalent).
+
+On DEAD transition:
+1. if ID already in defeatedEnemyIds, award nothing
+2. else add ID
+3. mark dead/non-collidable
+4. award score once
+5. increment kills once
+
+Previously defeated enemies NEVER return as active entities during same run.
+
+After checkpoint respawn / Restart Zone: omitted from active enemy list.
+Optional cosmetic memorial only.
+
+They may NOT: move, attack, damage, collide, receive damage, award score, award kills, drop rewards.
+
+Authoritative anti-duplicate-score rule.
+defeatedEnemyIds reset only on new run.
+
+==================================================
+29. ENEMY TYPES
+==================================================
+
+Patroller: 32x48, speed 45, patrols [minX, maxX]
+
+Chaser: 32x48, speed 120, chase trigger: horizontal distance <= 240px, vertical center diff <= 64px, line of sight clear
+
+Armored: 34x50, speed 60, HP 2, thicker armor, faint red chest arrow, HP bar
+
+Brute: 40x60, speed 35, HP 3, has separate radial attack
+
+==================================================
+30. ENEMY VISUAL STYLE
+==================================================
+
+Dark blocky body of 15–20 stacked armor cubes, long red scarf/cloak, two glowing white eyes, short dark blade.
+
+Armor palette: #0a0a0a through #2a2a2a
+Cloth palette: #8a1010 through #c02020
+Eye color: #f0f0f0
+
+Only enemy eyes may use shadowBlur.
+
+==================================================
+31. ENEMY ANIMATION STATES
+==================================================
+
+States: idle, walk, run, jump, crouch, attack, hurt, death
+
+Walk → Run: speed > 200
+Run → Walk: speed < 180
+(Hysteresis prevents oscillation.)
+
+Any → Jump: vy < 0
+Falling uses jump presentation.
+
+Grounded AI may crouch per AI decision.
+Eligible enemies may Attack per AI decision + attack timer ready.
+Patroller/Chaser/Armored attack state is visual telegraph only.
+
+On damage: hurt, 0.15 s, ~2px shake.
+After 2 consecutive hits within 1.0 s: staggered, 0.5 s, uses enemySimDt.
+
+On HP <= 0: death.
+Immediately non-collidable, non-damaging, AI inactive.
+May shatter into 8–10 cubes.
+
+==================================================
+32. NON-BRUTE ENEMY ATTACKS
+==================================================
+
+Patroller/Chaser/Armored: attack animation is a TELEGRAPH ONLY.
+No separate player-damage hitbox.
+Actual player damage is contact damage only.
+Do not invent additional attack damage.
+
+==================================================
+33. BRUTE RADIAL ATTACK
+==================================================
+
+Trigger: player within ~90px.
+Wind-up: 0.5 s.
+Visual: red pulse.
+Impact radius: 100px.
+Damage: 2.
+Cooldown: 2.5 s (enemy AI timer, slowed by Slow-motion).
+
+During wind-up:
+- if Brute takes damage, attack interrupted
+- if player leaves radius before resolution, attack misses
+
+Shield and i-frames block normally.
+
+==================================================
+34. ENEMY AI
+==================================================
+
+Line of sight: horizontal raycast; solid walls block.
+
+Alert: 0.4 s pause, "!" displayed, timer uses enemySimDt.
+Return: 1.5 s back to post if player outside chase range, uses enemySimDt.
+
+Attack wind-up for non-Brute: 0.3 s visual telegraph (tint + backward step).
+
+Edge detection: 0.2 s pause then turn.
+
+Stagger: 2 hits within 1.0 s → 0.5 s stun, uses enemySimDt.
+
+Group flanking advisory only. If ≥2 eligible enemies within 150px:
+- select two deterministically by stable authored IDs
+- one left-side flank, one right-side flank
+
+Flanking NEVER overrides: collision safety, edge detection, patrol bounds, walls, authored geometry.
+If flank path blocked: standard chase.
+
+No unseeded random gameplay AI.
+
+==================================================
+35. PLAYER-ENEMY COLLISION
+==================================================
+
+Stomp takes priority over side contact if geometric conditions valid.
+Otherwise side contact can damage.
+Player damage subject to: Shield, i-frames, death state.
+
+==================================================
+36. PHYSICS
+==================================================
+
+Deterministic fixed 60Hz.
+
+Gravity: 2400
+Maximum fall: 1500
+
+Sara jump velocity: -800
+Raha jump velocity: -690
+Aram jump velocity: -730
+
+Ideal single-jump heights: Sara ~133px, Raha ~99px, Aram ~111px.
+
+Variable jump: if released and vy < -180: vy += 1800 * fixedDt
+
+Coyote time: 0.10 s
+Jump buffer: 0.12 s
+
+==================================================
+37. JUMP RULES
+==================================================
+
+Sara: max two jumps per airborne cycle, second in midair.
+Raha: one jump.
+Aram: one jump.
+
+Landing resets airborne jump availability.
+
+Second Sara jump only after first jump actually began.
+Calling jump twice in consecutive frames is NOT valid implementation.
+
+==================================================
+38. SARA DOUBLE-JUMP ACCEPTANCE
+==================================================
+
+Minimum: 260px
+
+Measurement: from feet at first takeoff to highest feet position during full double-jump maneuver.
+
+Test MUST:
+1. hold Jump during first jump
+2. not release early
+3. trigger second jump at apex or max-height timing under normal rules
+4. second jump while airborne
+5. avoid ceiling collision
+6. measure actual simulation state
+7. NOT use consecutive-frame jump calls
+
+Configured physics intended to provide margin.
+If implementation falls below 260px, fix implementation, do NOT weaken the test.
+
+==================================================
+39. COLLISION RESOLUTION
+==================================================
+
+Two passes.
+
+Pass 1 Horizontal: integrate X, resolve overlaps, correct X, set vx = 0 when blocked.
+
+Pass 2 Vertical: integrate Y, resolve overlaps, correct Y, set vy = 0, set onGround.
+
+Landing: vy > 0 AND prevY + h <= platform.y + 2
+Ceiling: vy < 0 AND prevY >= platform.y + platform.h - 2
+
+Physics MUST NOT: touch DOM, render, access network, access localStorage, trigger audio, modify unrelated entities.
+Physics may mutate ONLY state explicitly passed in.
+
+==================================================
+40. STOMP
+==================================================
+
+Stomp: player.vy > 200 AND crosses enemy top surface.
+Damage: 1. Bounce velocity: -480.
+
+If stomp reduces enemy HP to 0: qualifies for Perfect Landing.
+If enemy survives: normal stomp, no Perfect Landing.
+
+==================================================
+41. PERFECT LANDING
+==================================================
+
+Valid only if:
+- stomp geometrically valid
+- stomp damage directly reduces enemy HP to zero
+
+Does NOT apply to: side attacks, Raha Slam, other attacks, stomp where enemy survives.
+
+==================================================
+42. OFF-SCREEN ENTITIES
+==================================================
+
+May reduce expensive rendering work.
+May reduce AI decision frequency ONLY if essential deterministic state stays correct.
+Never remove gameplay state merely for being off-screen.
+Never permanently delete an entity for leaving camera.
+
+==================================================
+43. DEATH
+==================================================
+
+Fall death: player.y > activeZoneGroundY + 400
+HP death: player.hp <= 0
+
+Both use same checkpoint/death system.
+
+==================================================
+44. CHECKPOINTS
+==================================================
+
+Exactly two:
+Checkpoint 1: beginning of Zone 2
+Checkpoint 2: beginning of Zone 3
+
+Each: authored trigger rectangle, respawn position, checkpoint ID.
+Crossing rectangle activates.
+Remains active for current run.
+Newest checkpoint is active respawn.
+NOT persisted in localStorage.
+
+==================================================
+45. CHECKPOINT RESPAWN
+==================================================
+
+On death with active checkpoint:
+- respawn at active checkpoint
+- restore HP to effective max HP
+- restore valid standing state
+- reset current respawn-zone transient combat/world state
+- preserve run progress
+
+Reset:
+- active enemies NOT in defeatedEnemyIds
+- projectiles
+- particles
+- breakable platforms
+- zone-local transient state
+
+Preserve:
+- score
+- kills
+- currentRunCoins
+- collectedCoinIds
+- collectedCrystalIds
+- collectedHealthIds
+- collectedHeartIds
+- heartCount
+- defeatedEnemyIds
+- Combo state
+- active checkpoint
+- adaptive-difficulty state
+
+Do NOT:
+- write localStorage
+- show final death screen
+- restore collected collectibles
+- restore defeated enemies
+
+Previously completed earlier zones remain completed.
+Reset scope is respawn checkpoint's zone only.
+
+==================================================
+46. RESTART ZONE
+==================================================
+
+Pause menu contains Restart Zone.
+
+Restart Zone:
+- move to beginning of current zone
+- restore HP to effective max HP
+- reset non-defeated enemies in that zone
+- reset projectiles
+- reset particles
+- reset breakable platforms
+- reset zone-local transient state
+
+Preserve:
+- score, kills, currentRunCoins
+- collected collectibles
+- heartCount
+- defeatedEnemyIds
+- active checkpoint
+- adaptive-difficulty state
+- character availability
+
+Do NOT restore:
+- collected coins/crystals/health/hearts
+- defeated enemies
+
+Current zone intervals:
+Zone 1: [0, 1800)
+Zone 2: [1800, 3400)
+Zone 3: [3400, 5200]
+
+No ambiguous boundaries.
+Restart Zone is NOT a death.
+
+==================================================
+47. NEW RUN
+==================================================
+
+Starts from Zone 1.
+Resets: score, kills, currentRunCoins, heartCount, collectedCoinIds, collectedCrystalIds, collectedHealthIds, collectedHeartIds, defeatedEnemyIds, Combo, active checkpoint, adaptive difficulty, zone completion, temporary effects, current character state.
+
+Persistent localStorage remains.
+
+==================================================
+48. COLLECTIBLE IDS
+==================================================
+
+Every collectible has fixed authored ID.
+
+Run collections:
+collectedCoinIds
+collectedCrystalIds
+collectedHealthIds
+collectedHeartIds
+
+Collected collectibles remain absent for entire current run.
+Checkpoint/Restart NEVER restore collected.
+New run clears collections.
+NOT persisted to localStorage.
+
+==================================================
+49. ADAPTIVE DIFFICULTY
+==================================================
+
+Track consecutive deaths within same zone.
+Death includes death → checkpoint respawn.
+Restart Zone is NOT a death.
+
+Different zone entered: zoneDeathStreak = 0
+Death in current zone: zoneDeathStreak += 1
+
+zoneDeathStreak >= 3: adaptive activates for that zone for remainder of current run.
+
+Effect: enemy movement speed multiplier = 0.8
+ONLY movement speed modified.
+
+Do NOT change: enemy HP, player damage, enemy damage, attack damage, score, player speed, player cooldowns.
+
+Persists until run ends.
+Different zone → its own counter.
+
+==================================================
+50. LEVEL STRUCTURE
+==================================================
+
+Total world width: 5200px. Exactly three zones.
+
+Zone 1: [0, 1800), length 1800, dark forest, Patroller, tutorial/no gaps
+Zone 2: [1800, 3400), length 1600, dark road, Chaser + Armored, first gaps/breakables
+Zone 3: [3400, 5200], length 1800, castle approach, all types, final battle
+
+Each zone: three authored subsections ~500–600px.
+
+==================================================
+51. LEVEL DATA
+==================================================
+
+All gameplay placement authored in: src/level.js
+No random runtime placement.
+
+LEVEL_DATA contains fixed data for:
+- platforms, breakable platforms
+- enemy placement, enemy ID, enemy type, patrol bounds
+- coin placement, coin ID, coin rarity
+- crystal placement, crystal ID
+- health pickup placement, health pickup ID
+- heart placement, heart ID
+- checkpoint placement, checkpoint trigger, checkpoint respawn
+- NPC placement
+- final arena enemy IDs
+- moon-gate location
+
+Rare coin placement authored.
+Target proportion ~15%. Design target only.
+Never a runtime random-roll rule.
+
+==================================================
+52. FINAL BATTLE
+==================================================
+
+Final arena in Zone 3.
+Enemies: 2 Brutes, 3 Armored. Each has fixed ID.
+
+Moon gate CLOSED while any required final enemy undefeated.
+Gate opens only when all five IDs appear in defeatedEnemyIds.
+Open gate: white glowing circular portal.
+
+Level completes when currently active character touches open gate.
+
+Completion order:
+1. award completion score
+2. finalize final score
+3. compute rank
+4. update persistence
+5. switch to Victory state
+6. stop gameplay simulation
+
+"Travel Again" starts new run.
+
+==================================================
+53. CAMERA
+==================================================
+
+Framerate-independent:
+camera += (target - camera) * (1 - exp(-factor * dt))
+
+Factors: x = 7, y = 5
+
+Look-ahead: 40px in facing direction
+Add 20px when player speed > 300px/s
+
+Horizontal clamp: 0 .. LEVEL_W - 1280
+Never show beyond level.
+
+==================================================
+54. SCREEN SHAKE
+==================================================
+
+Small: 4px, 0.1s
+Large: 12px, 0.25s
+Decay: dt * 30
+
+Session setting: Full / Reduced / Off.
+Presentation only.
+
+==================================================
+55. ENVIRONMENT AND PARALLAX
+==================================================
+
+Five parallax layers:
+1. stars/dark clouds — 0.1
+2. moon + blue-white halo — 0.15
+3. gothic castle + sharp spires + orange windows — 0.3
+4. silhouetted trees + ruined pillars — 0.5
+5. foreground grass — 1.2
+
+Atmosphere: dark vignette, bottom fog, moon rays.
+
+Sky palette:
+#05070f, #0d1420, #1a2230, #060810
+
+Moon: #e8f0ff
+
+Platform:
+#2a2f3a, #181c24, #0a0d14
+
+Breakable:
+#5a4030, #2a1e14
+
+Breakables may have vertical cracks + subtle red highlights.
+
+==================================================
+56. AMBIENT PARTICLES
+==================================================
+
+Zone 1: floating dry leaves
+Zone 2: subtle dust/road particles
+Zone 3: orange castle sparks
+Aram: purple motes
+Moon: light rays
+
+Max ~200 particles. Use pooling.
+Gameplay-critical randomness forbidden.
+Cosmetic randomness uses deterministic seeded randomness.
+
+==================================================
+57. GAME FEEL
+==================================================
+
+Required: hit-stop, screen shake, squash/stretch, landing dust, dash trail, damage flash, cooldown ring.
+
+Squash on jump: Y * 1.15, X * 0.85
+Landing: Y * 0.85, X * 1.15
+Ease over ~0.1s.
+
+Landing dust: fall distance > 100px → 8–12 particles
+
+Dash trail: 5 afterimages, alpha 0.4 → 0
+
+Damage flash: red full-screen, 0.15s
+
+Brief visual camera tilt may be used.
+
+Presentation effects must NOT mutate gameplay rules.
+
+==================================================
+58. SCORING
+==================================================
+
+Enemy base scores:
+Patroller: 100
+Chaser: 100
+Armored: 150
+Brute: 250
+
+Other:
+Common coin: 10
+Rare coin: 50
+Moon crystal: 200
+Level completion: 500
+
+Enemy kill score: exactly once per enemy per run, at authoritative DEAD transition.
+Coin score: on successful pickup.
+Crystal score: on successful pickup.
+Completion score: on level completion.
+
+==================================================
+59. KILL SCORE ORDER
+==================================================
+
+On first DEAD transition:
+
+1. If ID already in defeatedEnemyIds, award nothing.
+2. Else add ID immediately.
+3. Determine base score.
+4. If Perfect Landing applies, replace base with base × 3.
+5. If Combo active, multiply result by ×2.
+6. Add final score once.
+7. Increment kills once.
+
+No async work between these operations.
+No other code path may award that enemy's kill score.
+
+==================================================
+60. COMBO
+==================================================
+
+Third consecutive kill activates Combo.
+Third kill itself does NOT receive multiplier.
+×2 begins with FOURTH kill.
+
+Duration: 5s. Timer resets on kill.
+
+Resets on: 5s without kill OR player actually loses HP.
+
+Does NOT reset on: character switch, camera movement, zone transition, checkpoint respawn, Restart Zone.
+
+Checkpoint/Restart preserve current Combo exactly.
+
+==================================================
+61. DAMAGE TAKEN
+==================================================
+
+For rank: damageTaken = actual HP points lost.
+
+1-damage contact: +1
+2-damage Brute contact: +2
+2-damage Brute radial: +2
+Shield-blocked: +0
+i-frame-blocked: +0
+
+Blocked hits NOT counted.
+
+==================================================
+62. RANK
+==================================================
+
+Computed after run score finalized.
+
+Victory: add completion bonus first, then rank.
+Final game-over: no completion bonus; rank from current score + damageTaken; display as game-over rank.
+
+Thresholds:
+S: score >= 3000 AND damageTaken <= 2
+A: score >= 2000 AND damageTaken <= 5
+B: score >= 1000
+C: otherwise
+
+Persistent ordering: S > A > B > C > null
+
+==================================================
+63. PERSISTENCE
+==================================================
+
+Key: shadows_of_the_moon_save_v1
+
+Schema:
+{
+  "version": 1,
+  "bestScore": 0,
+  "bestRank": null,
+  "totalCoins": 0
+}
+
+At final game-over or victory:
+1. finalize score
+2. finalize rank
+3. read existing save
+4. merge
+5. write complete object once
+
+const prev = readSave();
+const next = {
+  version: 1,
+  bestScore: Math.max(prev?.bestScore ?? 0, currentRunScore),
+  bestRank: highestRank(prev?.bestRank ?? null, currentRunRank),
+  totalCoins: (prev?.totalCoins ?? 0) + currentRunCoins
+};
+writeSave(next);
+
+currentRunCoins = coin pickups this run. Common and rare each count as 1.
+
+Malformed/unsupported save → treat as empty. Do NOT crash.
+
+Single complete localStorage.setItem call. No partial writes.
+
+No save writes:
+- per frame, per second
+- on coin/crystal/health/heart pickup
+- at checkpoint
+- at Restart Zone
+- during Pause
+
+Persistence ONLY at final game-over or victory.
+Checkpoint data never persisted.
+Settings session-only.
+
+==================================================
+64. CLEAR RECORD
+==================================================
+
+Two explicit steps.
+First: arm confirmation.
+Second: clear persistent record.
+Single accidental activation must never erase.
+
+==================================================
+65. UI
+==================================================
+
+HUD:
+Top-left: character name + HP bar (character-color gradient)
+Top-center: chapter/zone + zone name
+Top-right: coins + kills
+Bottom-center: three character selectors
+
+Start screen: title + three-line story + Start Journey + control guide
+
+Death screen: "Darkness prevailed..."
+Show: score, kills, coins, damage taken, rank
+Button: Try Again
+
+Victory screen: "The Moon Has Returned"
+Show stats.
+Button: Travel Again
+
+Pause overlay: Resume, Restart Zone, Sound toggle, Shake intensity control
+
+NO user-controllable FPS cap setting.
+
+Optional developer FPS overlay: 60 FPS target + current measured FPS. Cannot alter cap.
+
+==================================================
+66. SOUND
+==================================================
+
+Optional. Web Audio API only. No external files.
+
+Possible: oscillator jump, coin, hit, enemy attack noise, optional loop music.
+
+If audio init fails: game continues, no uncaught error.
+
+Sound toggle session-only.
+
+==================================================
+67. ENVIRONMENTAL STORYTELLING
+==================================================
+
+Start of each zone: stone inscription ~5s on-screen.
+
+Zone 1: "This is the forest of Midnight. The moon was stolen..."
+Zone 2: "Sara found a trace of her brother."
+Zone 3: "The castle of shadows. Where the moon is imprisoned."
+
+Zone 3 entrance: 2s flashback (black bg, white text).
+
+Presentation events.
+Do NOT pause gameplay unless explicitly required.
+
+==================================================
+68. NPC
+==================================================
+
+One inert NPC in Zone 2.
+World X ~2600.
+Visual: stone statue silhouette.
+
+Only Aram can interact.
+Condition: Aram active + distance <= 60px.
+Show interaction prompt.
+Button: J / Attack.
+
+When prompt active, this specific J input = NPC interaction instead of attack.
+
+One fixed authored dialogue line.
+Duration: 5s.
+Does NOT repeat during same run.
+
+Other characters: no prompt, no interaction.
+Dialogue text authored. NOT randomized.
+
+==================================================
+69. ARCHITECTURE
+==================================================
+
+Core modules:
+1. constants.js
+2. input.js
+3. entities/
+4. physics.js
+5. ai.js
+6. level.js
+7. render.js
+8. loop.js
+
+main.js = entry point.
+
+Entity files: player.js, enemy.js, projectile.js, particle.js, coin.js
+
+Global runtime state in one "game" object.
+Entity-local state on entities.
+
+game.score, game.gameTime, game.currentZone
+player.hp, player.vx, player.vy
+enemy.hp, enemy.vx
+projectile.life
+
+Do NOT duplicate global authoritative state.
+
+==================================================
+70. CODE QUALITY
+==================================================
+
+JS functions <= 60 lines.
+Single responsibility.
+
+Tunable physics/gameplay/combat/timing/rendering → constants.js.
+Static authored level data → literals in level.js.
+
+No duplicate timing constants.
+No gameplay logic in rendering.
+No rendering logic in physics.
+No localStorage from physics.
+No network from gameplay.
+No mutation of unrelated entities from physics.
+No unnecessary per-frame allocation.
+
+Pooling for: projectiles, particles, combat popups.
+
+DOM updates only when displayed values actually change.
+
+==================================================
+71. GLOBAL STATE RULE
+==================================================
+
+"All game state in one game object" means:
+- Global runtime state centralized in game.
+- Entity-local state remains on entity objects.
+Do NOT put every entity's internal variables on game.
+Do NOT create competing global singleton state.
+
+==================================================
+72. LEVEL DETERMINISM
+==================================================
+
+All gameplay-critical placement deterministic.
+No unseeded Math.random for: enemy placement, enemy decisions, collectible placement, damage, score, cooldown timing, physics, acceptance tests.
+
+Cosmetic randomness may use deterministic seeded generator.
+
+==================================================
+73. TEST MODE
+==================================================
+
+Harness may inject: window.__SOM_TEST__ = true;
+before navigation.
+
+Production must NOT activate test-only features.
+
+?testSafeArea=1 recognized ONLY when window.__SOM_TEST__ === true.
+URL parameter inspected ONLY inside that branch.
+
+In normal production:
+- do NOT parse testSafeArea
+- do NOT read it
+- do NOT apply synthetic insets
+- do NOT branch on it
+
+Playwright: inject flag with page.addInitScript() before navigation.
+
+Test hooks may expose window.__SOM_METRICS__.
+Production behavior must NOT depend on hooks.
+
+==================================================
+74. TEST METRICS
+==================================================
+
+When SOM_TEST true, optionally expose:
+- render timestamps
+- simulation step count
+- current gameTime
+- player state, enemy state, cooldown state
+- safe-area test status
+
+Test instrumentation only.
+Never alter normal gameplay.
+
+==================================================
+75. REQUIRED FOLDER STRUCTURE
+==================================================
+
+/
+├── index.html
+├── style.css
+├── README.md
+├── SPEC.md
+├── TASKS.md
+├── ORCHESTRATOR.md
+├── .env.example
+├── .gitignore
+├── src/
+│   ├── main.js
+│   ├── constants.js
+│   ├── input.js
+│   ├── physics.js
+│   ├── ai.js
+│   ├── level.js
+│   ├── render.js
+│   ├── loop.js
+│   └── entities/
+│       ├── player.js
+│       ├── enemy.js
+│       ├── projectile.js
+│       ├── particle.js
+│       └── coin.js
+├── tools/
+│   ├── notify.py
+│   ├── telegram-listener.py
+│   ├── screenshot.sh
+│   ├── acceptance.py
+│   └── phase-runner.sh
+├── state/
+│   └── telegram_commands.json
+├── screenshots/
+│   └── .gitkeep
+└── .github/
+    └── workflows/
+        ├── test.yml
+        └── deploy-pages.yml
+
+==================================================
+76. GITIGNORE
+==================================================
+
+.env
+/state/
+__pycache__/
+*.pyc
+node_modules/
+/screenshots/*.png
+
+Keep: screenshots/.gitkeep
+
+==================================================
+77. RUNTIME SIZE BUDGET
+==================================================
+
+Combined raw uncompressed byte size of:
+index.html + style.css + src/**
+must be strictly below: 200 KB
+
+Excluded: tools, tests, docs, screenshots, .git, GitHub workflows.
+
+CI hard-fails if exceeded.
+
+==================================================
+78. PERFORMANCE
+==================================================
+
+- Canvas 2D only
+- imageSmoothingEnabled=false
+- DPR <= 2
+- render-only culling
+- max ~200 particles
+- pooling
+- shadowBlur only for enemy eyes
+- intentional render cap 60 FPS
+
+Do NOT remove gameplay entities for being off-screen.
+Do NOT create unbounded transient objects per frame.
+
+==================================================
+79. REQUIRED AUTOMATED ACCEPTANCE TESTS
+==================================================
+
+Python Playwright + headless Chromium.
+
+79.1 Sara double jump: >= 260px under defined procedure.
+
+79.2 Raha Slam:
+- airborne K enters fast-fall
+- landing impact radius = 90px
+- enemies in radius take 2 damage
+- breakables in radius break
+- large shake triggers
+
+79.3 Aram Slow-motion:
+- enemy movement 0.35 factor
+- enemy AI timers 0.35
+- player 1.0
+- duration 3.0s
+- player ability cooldowns NOT slowed
+
+79.4 Character switching: HP ratio with specified round formula.
+
+79.5 Midair double jump: Sara yes, Raha no, Aram no.
+
+79.6 Horizontal collision: no wall clipping, X corrected, vx = 0 on blocked.
+
+79.7 Visibility pause:
+1. start game
+2. hide tab
+3. 30s hidden
+4. return
+5. accumulator reset
+6. no physics explosion
+7. remains paused
+8. explicit Resume required
+
+79.8 Multi-touch: simultaneously Left + Jump + Attack for >= 500ms; all register independently.
+
+79.9 Checkpoint duplicate-score protection:
+1. defeat specific authored enemy
+2. record score
+3. activate checkpoint
+4. die
+5. respawn
+6. defeated enemy NOT active
+7. no second kill score possible
+
+79.10 Restart Zone duplicate-score protection:
+1. defeat specific authored enemy
+2. record score
+3. Pause → Restart Zone
+4. defeated enemy NOT active
+5. no duplicate score possible
+
+79.11 Performance regression:
+10-second wall-clock test, CPU throttle ×4, 15 enemies on screen.
+Record every actual rendered frame timestamp.
+Calculate: frame count, median interval, 95th percentile, max interval.
+
+Pass:
+median <= 16.7ms
+p95 <= 33.3ms
+max gap <= 250ms
+
+Expected ~600 frames in 10s.
+Do NOT require exactly 600.
+Minimum: 540 frames. Fewer → fail with actual count.
+
+79.12 Fall death: without active checkpoint, y > groundY + 400 → final death flow.
+
+79.13 Portrait behavior:
+- rotation overlay
+- gameplay paused
+- input disabled
+- no physics advancement
+- controls hidden
+
+Return landscape:
+- overlay hides
+- game REMAINS paused
+- Resume required
+
+79.14 Fullscreen: first Start Journey gesture attempts; rejection does not block; no uncaught error.
+
+79.15 Persistence:
+- final game-over writes save
+- victory writes save
+- reload preserves bestScore, bestRank, totalCoins
+- checkpoint does NOT write save
+- pickup does NOT independently write save
+
+79.16 Safe-area test:
+With __SOM_TEST__ = true and ?testSafeArea=1:
+- synthetic insets apply
+- buttons visible + hittable
+
+Without SOM_TEST: testSafeArea has no effect.
+
+79.17 Enemy score uniqueness:
+- awards kill score once
+- increments kill count once
+- no re-award through duplicate DEAD transitions
+- no re-award after checkpoint
+- no re-award after Restart Zone
+
+79.18 Final battle gate:
+- exactly 2 final Brutes
+- exactly 3 final Armored
+- closed while required enemy remains
+- opens after all five IDs defeated
+- active player touching open gate completes level
+
+==================================================
+80. PHASE-AWARE ACCEPTANCE
+==================================================
+
+tools/acceptance.py --phase N
+
+Every test has min_phase:
+Sara double-jump             2
+Raha Slam                    8
+Aram Slow-motion             7
+Character switching          7
+Midair double jump           7
+Horizontal collision         2
+Visibility pause             1
+Multi-touch                  1
+Checkpoint duplicate score   11
+Restart duplicate score      13
+Performance                  14
+Fall death                   2
+Portrait                     1
+Fullscreen                   9
+Persistence                  9
+Safe-area                    14
+Enemy score uniqueness       6
+Final battle gate            12
+
+Runner:
+- run tests where test.min_phase <= current_phase
+- report not-yet-eligible as skipped
+- retain previous-phase regression coverage
+- exit code 1 if any executed test fails
+
+==================================================
+81. STATIC CI CHECKS
+==================================================
+
+Validate:
+- required runtime files exist
+- runtime size < 200KB
+- no WebGL usage
+- no forbidden engine/framework import
+- no CDN runtime dependency
+- no runtime npm package
+- no backend dependency
+
+Check applies to runtime source files.
+SPEC/doc mentions of forbidden names do NOT fail runtime scan.
+
+==================================================
+82. TEST SERVER
+==================================================
+
+CI/local: python -m http.server 8000 --bind 127.0.0.1
+Wait until port 8000 reachable. No tests before readiness.
+Terminate after tests.
+
+==================================================
+83. MANUAL DEVICE TESTS
+==================================================
+
+Document in README.
+
+Android: touch, multi-touch, fullscreen, orientation, actual FPS, safe-area, UI scaling.
+iPhone/iOS: touch, multi-touch, notch, safe-area, orientation transition, fullscreen behavior.
+Weak Android: min 2 minutes sustained; observe degradation.
+Physical device: vibration where supported; graceful otherwise.
+
+Actual device FPS = manual test.
+
+==================================================
+84. GITHUB PREFLIGHT
+==================================================
+
+Non-destructive.
+
+If .git absent: initialize.
+If .git present: preserve history, preserve config, never reinitialize.
+
+Verify:
+- repository identity matches GITHUB_REPO
+- token authentication works via read-only API checks
+- permissions appear sufficient for push/branch/PR
+- Telegram send capability works
+
+Do NOT create test branch/commit/PR during Phase 0.
+First feature branch is Phase 1.
+Never echo or log secrets.
+Never embed tokens in remote URLs.
+Never use https://TOKEN@github.com/...
+Never pass secrets as shell arguments.
+
+==================================================
+85. PHASE 0 GIT EXCEPTION
+==================================================
+
+Phase 0 is the ONLY bootstrap exception.
+No feature branch or PR for Phase 0.
+
+Phase 0 prepares:
+- repository scaffold
+- SPEC.md, TASKS.md, ORCHESTRATOR.md
+- test infrastructure
+- Telegram tooling
+- CI
+- deployment workflow
+- environment templates
+
+From Phase 1: phase/NN-kebab-name required.
+
+==================================================
+86. GITHUB BRANCH WORKFLOW
+==================================================
+
+Each feature phase:
+1. create/use phase branch
+2. implement only that phase
+3. run applicable tests
+4. commit
+5. push
+6. create/update PR
+7. send Telegram completion notification
+8. wait for approval
+9. merge only after approval
+10. continue to next phase
+
+Branch examples:
+phase/01-game-loop
+phase/02-physics
+phase/03-sara-rendering
+...
+phase/14-final-acceptance
+
+No duplicate PRs.
+
+==================================================
+87. COMMIT AND PR RULES
+==================================================
+
+Commit format: <type>(<scope>): <description>
+
+Examples:
+feat(loop): add fixed timestep
+fix(ai): prevent duplicate enemy score
+test(physics): add jump regression
+
+PR title: [Phase N] Short title
+
+PR body: summary, changed files, acceptance tests, regression status, performance notes, screenshot info if applicable.
+
+Never bypass branch protection.
+Never force-push main.
+If merge blocked: report, stop, wait.
+
+==================================================
+88. CI WORKFLOW
+==================================================
+
+Create: .github/workflows/test.yml
+
+Trigger:
+- push to main
+- push to phase branches
+- PRs targeting main
+
+Determine source branch:
+For PR: GITHUB_HEAD_REF
+For push: GITHUB_REF
+
+BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+
+Extract phase:
+PHASE=$(echo "$BRANCH" | sed -nE 's|^phase/([0-9]+)(-.+)?$|\1|p')
+
+If no match: PHASE=14
+
+CI installs Playwright in test env only.
+
+Then:
+1. start local Python server
+2. wait for readiness
+3. static checks
+4. python tools/acceptance.py --phase "$PHASE"
+5. upload screenshots if present
+6. stop server
+
+Hard-fails on: failed executed test, runtime size over, forbidden runtime dep, missing required file.
+
+==================================================
+89. GITHUB PAGES
+==================================================
+
+Create: .github/workflows/deploy-pages.yml
+
+Deploy on push to main (optional workflow_dispatch).
+Use GitHub Pages through GitHub Actions.
+Do NOT use branch-root Pages deployment.
+
+Upload: index.html, style.css, src/**, permitted runtime assets.
+Use official Pages Actions.
+Configure Pages permissions.
+Expected URL: https://<username>.github.io/<repo>/
+
+==================================================
+90. TELEGRAM LISTENER
+==================================================
+
+tools/telegram-listener.py (single process):
+
+- long-poll getUpdates
+- filter by TELEGRAM_CHAT_ID
+- silently ignore other chats
+- track update_id
+- advance offset correctly
+- process each update at most once
+- queue supported commands
+- persist queue state
+
+Command record: update_id, received_at, command, phase_number, consumed
+State file: state/telegram_commands.json
+
+Lock mechanism prevents duplicate processing.
+
+Approval/rejection apply ONLY to their recorded phase_number.
+Stale approval cannot approve later phase.
+
+==================================================
+91. TELEGRAM FAILURE MODE
+==================================================
+
+Listener cannot start → notification-only mode. Do not crash workflow. Report unavailability.
+
+Send capability fails during Phase 0 preflight → preflight fails, stop.
+
+==================================================
+92. TELEGRAM COMMANDS
+==================================================
+
+Supported:
+/approve
+/reject <reason>
+/status
+/pause
+/resume
+/retry
+/screenshot
+/rollback confirm
+/tweak <key> <value>
+
+Telegram input UNTRUSTED.
+Never execute as shell commands.
+Never pass without strict validation.
+Never shell=True with Telegram-derived values.
+Use allowlist.
+
+==================================================
+93. TELEGRAM PAUSE
+==================================================
+
+/pause sets pause_requested=true.
+Agent stops at next safe boundary.
+No new implementation step.
+Waits for /resume.
+Do not kill arbitrary processes.
+
+==================================================
+94. TELEGRAM STATUS
+==================================================
+
+/status reports: phase, state-machine state, branch, last test result, current error, last successful commit.
+Never report secrets.
+
+==================================================
+95. TELEGRAM RETRY
+==================================================
+
+Automatic limit: 2 retries.
+After 2 automatic failures: stop, notify.
+/retry by user = explicit additional attempt.
+Never silently bypass persistent failure.
+
+==================================================
+96. TELEGRAM SCREENSHOT
+==================================================
+
+/screenshot at safe point.
+May invoke screenshot.sh, create under screenshots/, optionally send via Telegram.
+Screenshots not runtime assets.
+Ignored by Git unless explicitly required.
+
+==================================================
+97. TELEGRAM ROLLBACK
+==================================================
+
+Maintain state/phase_history.json:
+phase, branch, last successful commit, timestamp.
+
+/rollback requires /rollback confirm.
+Plain /rollback reports confirmation required.
+
+Rollback:
+- applies only to current phase branch
+- cannot go past last merged phase
+- cannot rewrite main history
+- prefer git revert over destructive rewrite
+- refuse if unsafe uncommitted changes would be lost
+
+==================================================
+98. TELEGRAM TWEAK
+==================================================
+
+/tweak <key> <value>
+
+Only explicitly allowlisted gameplay constants.
+
+Examples: GRAVITY, MAX_FALL, jump velocities, movement speed, cooldown values, damage values, particle cap.
+
+NEVER allow: tokens, env values, security settings, shell scripts, URLs, file paths, Git config, level geometry, enemy IDs, persistence key, test-security controls.
+
+Procedure:
+1. validate key
+2. validate type
+3. validate range
+4. modify temp copy
+5. run tests
+6. commit only on pass
+7. log to state/tweak_log.json
+
+No arbitrary Telegram-based file editing.
+
+==================================================
+99. TELEGRAM NOTIFICATIONS
+==================================================
+
+Phase start: 🚀 Phase N starting: <title> | branch: <branch>
+During long phases: screenshot every 5–10 min
+Phase completion: ✅ Phase N done | tests: passed/total | PR: <link> | awaiting /approve
+Error: ❌ Error in Phase N | <short> | <file:line> | reply /retry
+
+Never send secrets.
+
+==================================================
+100. PHASE STATE MACHINE
+==================================================
+
+Phase 1+:
+
+START → PREFLIGHT → IMPLEMENT → TEST
+
+If PASS: COMMIT → PUSH → OPEN_PR_OR_UPDATE → NOTIFY → WAIT_APPROVAL → APPROVED → MERGE → NEXT_PHASE
+If REJECTED: WAIT_APPROVAL → REJECTED → IMPLEMENT
+If FAIL: RETRY_1 → TEST → RETRY_2 → TEST → STOP + NOTIFY_ERROR
+
+Emergency stop:
+- 3 consecutive failures in one phase
+- token leak suspected
+- explicit pause
+- > 2 hours on one phase
+
+Do not bypass.
+
+==================================================
+101. PHASE WORKFLOW DISCIPLINE
+==================================================
+
+Before modifying any files:
+1. reread relevant SPEC sections
+2. git status
+3. git log -5
+4. inspect TASKS.md
+5. inspect ORCHESTRATOR.md
+6. run existing applicable tests
+7. implement only current phase
+8. do not refactor unrelated systems
+
+Poll Telegram:
+- before every major implementation step
+- after every major step
+- at least every 5 seconds during long operations
+
+Honor /pause at safe boundaries.
+
+==================================================
+102. DEFINITION OF DONE
+==================================================
+
+Feature phase DONE only when:
+1. all required files exist
+2. game loads without uncaught errors
+3. current-phase tests pass
+4. prior-phase regression tests pass
+5. screenshot verification where applicable
+6. runtime size < 200KB
+7. forbidden runtime deps absent
+8. working tree clean except ignored artifacts
+9. changes committed
+10. phase branch pushed
+11. PR created or updated
+12. completion notification sent when Telegram available
+13. agent stops and waits for approval
+
+Phase 0 is the only branch/PR exception.
+
+==================================================
+103. PHASES
+==================================================
+
+Phase 0: Bootstrap (SPEC scaffold, git init if needed, env preflight, documentation, helper tooling, CI, Pages workflow, configuration)
+
+Phase 1: game loop; input; fixed timestep; time domains; pause/resume fundamentals
+Phase 2: physics; jumping; collision; fall death foundation
+Phase 3: Sara rendering; animation; squash/stretch
+Phase 4: camera; parallax; moon; castle environment
+Phase 5: platform system; Zone 1 level data; enemy ID scheme; collectible ID scheme
+Phase 6: Patroller; player/enemy collision; base AI; defeatedEnemyIds integration
+Phase 7: Raha; Aram; switching; abilities; cooldown architecture
+Phase 8: Chaser; Armored; Brute; enemy animation states; group behavior; Brute radial attack
+Phase 9: coins; crystals; HUD; screens; localStorage
+Phase 10: hit-stop; shake; dust; dash trail; cooldown ring; damage flash
+
+Phase 11:
+- Milestone A: inscriptions; flashback; NPC
+- Milestone B: checkpoints; respawn rules
+- Milestone C: adaptive difficulty
+
+Phase 12:
+- Milestone A: Zone 2
+- Milestone B: Zone 3
+- Milestone C: final battle; moon gate
+
+Phase 13: rewards; rank; pause menu; heart containers; health pickups; clear-record flow
+Phase 14: final acceptance; regression; manual test checklist; GitHub Pages deployment; multi-touch verification; README verification
+
+Each milestone in Phases 11 and 12 completed in order.
+Each milestone = internal commit point.
+
+==================================================
+104. PHASE 0 REQUIRED FILES
+==================================================
+
+SPEC.md mirrors this specification.
+TASKS.md: phase order, status, milestones, dependencies, acceptance test mapping, checklist.
+ORCHESTRATOR.md: state machine, Git lifecycle, Telegram lifecycle, retry, approval, pause, rollback, emergency stop, CI, branch rules.
+
+tools/notify.py: Telegram notifications, optional screenshots, safe errors, secret-safe output.
+tools/telegram-listener.py: long polling, chat filtering, update dedup, command validation, persistence.
+tools/screenshot.sh: launch/connect local test env, capture, store, no secret exposure.
+tools/acceptance.py: phase-aware, Playwright, reporting, size check, forbidden-dep scan, required-file check, exit status.
+tools/phase-runner.sh: orchestration, phase state, Telegram checks, safe pause, retry transitions, test invocation, notifications.
+
+.env.example: variable names only. No real credentials.
+.gitignore: required ignores.
+.github/workflows/test.yml: branch detection, Playwright, server readiness, acceptance, static checks, artifacts.
+.github/workflows/deploy-pages.yml: Pages config, artifacts, deploy.
+
+==================================================
+105. FILE AND ASSET POLICY
+==================================================
+
+No external runtime assets.
+No third-party images/sprites/audio/fonts/videos.
+No CDN script.
+No external runtime library.
+All visuals procedural.
+
+==================================================
+106. PRODUCTION SAFETY
+==================================================
+
+Browser client NEVER contains: GitHub token, Telegram bot token, credentials, API secrets.
+These belong ONLY in orchestration env vars.
+Game must never require those secrets at runtime.
+
+==================================================
+107. INITIAL PHASE-0 RESPONSE
+==================================================
+
+When SPEC first supplied:
+DO NOT WRITE CODE.
+DO NOT implement Phase 0 yet.
+
+Respond with:
+1. confirmation entire SPEC read
+2. immutable engine confirmation
+3. major locked systems confirmation
+4. environment preflight status:
+   - GITHUB_TOKEN present/missing
+   - GITHUB_REPO present/missing
+   - TELEGRAM_BOT_TOKEN present/missing
+   - TELEGRAM_CHAT_ID present/missing
+5. genuinely unresolved ambiguities only
+6. Phase 0 implementation plan
+
+Never print secret values.
+Do not create feature code.
+Do not begin Phase 1.
+Then stop and wait.
+
+==================================================
+108. EXPLICIT START COMMAND
+==================================================
+
+Do not start Phase 0 implementation until user explicitly sends:
+
+Start Phase 0
+
+Only then may Phase 0 implementation begin.
+
+==================================================
+109. FINAL ENFORCEMENT
+==================================================
+
+Treat this document as authoritative.
+Do not weaken requirements.
+Do not replace the engine.
+Do not add runtime dependencies.
+Do not add backend logic.
+Do not modify locked gameplay rules without user approval.
+Do not code before explicit Phase 0 command.
+Implement one phase at a time.
+Run tests before and after changes.
+Preserve previous-phase behavior.
+Never allow duplicate enemy scoring.
+Never allow persistent writes outside defined events.
+Never expose tokens.
+Never auto-resume gameplay after a pause condition.
+First response = analysis/preflight/plan only.
+
+==================================================
+110. ENVIRONMENT CONTEXT
+==================================================
+
+Environment variables are now set. Preflight info:
+
+GITHUB_TOKEN: present
+- Classic PAT with "repo" scope
+- Never print, commit, log
+- Never embed in remote URL persistently
+- Use ephemeral credential or one-shot auth per push
+
+GITHUB_REPO: alirezasorenxu7-sketch/shadows-of-the-moon
+- Brand new empty repository
+- Public
+- No initial commit yet
+- No .git directory locally yet
+
+TELEGRAM_BOT_TOKEN: present
+- Bot username: @tefa123tris_bot
+- Never print
+
+TELEGRAM_CHAT_ID: 6575752704
+
+Additional context:
+- Repository has no commits. First push will be the initial commit on phase/01-game-loop.
+- Phase 0 may initialize local Git, set remote, configure tooling, but must NOT push code to remote yet (Phase 0 is bootstrap-only per section 85).
+- Proceed with Phase 0 analysis response exactly as section 107 requires.
+- Do NOT start coding until I send exact command: "Start Phase 0"
+
+==================================================
+END OF SPEC
+==================================================
+
+
