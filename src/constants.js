@@ -76,3 +76,31 @@ export const CHARACTER_COLORS = Object.freeze({
   raha: '#e63946',
   aram: '#9d4edd',
 });
+
+// ---- Sara rendering (SPEC §18.1 — locked appearance colors) ----------------
+// Hair #e8d174, tunic #4a9eff, cloak/accents #1e5aa8, boots #6a4a30 are
+// authored in the SPEC. Skin and eye tones are render-authored detail shades
+// consistent with the moonlit palette (not SPEC-locked).
+export const SARA_PALETTE = Object.freeze({
+  hair: '#e8d174',      // long blonde hair
+  tunic: '#4a9eff',     // blue tunic
+  cloak: '#1e5aa8',     // short cloak, darker blue
+  boots: '#6a4a30',     // brown boots
+  skin: '#e8cfae',      // pale moonlit skin (render-authored)
+  eye: '#0a0d14',       // dark eyes (render-authored)
+});
+
+// ---- squash & stretch (SPEC §57 — locked factors, Phase 3) -----------------
+export const SQUASH_DURATION = 0.1;   // seconds to ease back to neutral ("~0.1s")
+export const SQUASH_JUMP_Y = 1.15;    // jump takeoff: Y * 1.15
+export const SQUASH_JUMP_X = 0.85;    // jump takeoff: X * 0.85
+export const SQUASH_LAND_Y = 0.85;    // landing: Y * 0.85
+export const SQUASH_LAND_X = 1.15;    // landing: X * 1.15
+
+// ---- character animation (rendering tunables, SPEC §70) --------------------
+export const ANIM_IDLE_SPEED = 2.4;   // idle bob + breathing rate, rad/s
+export const ANIM_IDLE_BOB = 1.6;     // idle vertical bob amplitude, px
+export const ANIM_HAIR_SWAY = 2.2;    // idle hair sway rate, rad/s
+export const ANIM_RUN_CYCLE = 13.0;   // run leg-cycle rate, rad/s
+export const ANIM_HAIR_RISE = 0.010;  // hair rise per px/s of fall speed
+export const ANIM_HAIR_TRAIL = 0.020; // hair back-sweep per px/s of run speed
