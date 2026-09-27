@@ -40,6 +40,12 @@ function preventKeyDefault(code) {
 
 export function createInput({ game, onManualPause }) {
   const held = { left: false, right: false, jump: false, attack: false, special: false };
+  // Jump is edge-triggered PER PHYSICAL SOURCE (SPEC §37/§38): holding one
+  // jump key (Space) while pressing another (ArrowUp) — or the touch Jump
+  // button — is a genuine NEW press. This is what lets a player hold Jump
+  // through the first jump and still trigger Sara's second jump at the apex;
+  // a single source can never re-fire while already held.
+  const jumpSources = new Set();
   const counts = {
     jump: 0,
     attack: 0,
@@ -58,7 +64,11 @@ export function createInput({ game, onManualPause }) {
   }
 
   function press(btn) {
-    if (btn.hold) held[btn.hold] = true;
+    if (btn.hold && btn.hold !== 'jump') held[btn.hold] = true;
+    if (btn.hold === 'jump') {
+      jumpSources.add('touch');
+      held.jump = true;
+    }
     if (!btn.edge) return;
     if (btn.edge === 'jump') counts.jump += 1;
     if (btn.edge === 'attack') counts.attack += 1;
@@ -69,7 +79,11 @@ export function createInput({ game, onManualPause }) {
   }
 
   function release(btn, source) {
-    if (btn.hold) held[btn.hold] = false;
+    if (btn.hold && btn.hold !== 'jump') held[btn.hold] = false;
+    if (btn.hold === 'jump') {
+      jumpSources.delete(source === 'touch' ? 'touch' : source);
+      held.jump = jumpSources.size > 0;
+    }
     if (btn.timed) {
       const t0 = pressStart.get(source);
       pressStart.delete(source);
@@ -93,10 +107,16 @@ export function createInput({ game, onManualPause }) {
     if (!enabled()) return;                     // §8.1: gameplay input disabled
     if (matchesAny(KEYS.LEFT, e.code) && !held.left) held.left = true;
     else if (matchesAny(KEYS.RIGHT, e.code) && !held.right) held.right = true;
-    else if (matchesAny(KEYS.JUMP, e.code) && !held.jump) {
+    else if (matchesAny(KEYS.JUMP, e.code)) {
+      // New physical source => a real new jump press, even while another
+      // jump key is held (§37/§38). e.repeat already filtered above.
+      const isNewSource = !jumpSources.has(e.code);
+      jumpSources.add(e.code);
       held.jump = true;
-      counts.jump += 1;
-      events.push({ type: 'jump' });
+      if (isNewSource) {
+        counts.jump += 1;
+        events.push({ type: 'jump' });
+      }
     } else if (matchesAny(KEYS.ATTACK, e.code) && !held.attack) {
       held.attack = true;
       counts.attack += 1;
@@ -121,7 +141,10 @@ export function createInput({ game, onManualPause }) {
     // Releases ALWAYS process — a key held across a pause must not stick.
     if (matchesAny(KEYS.LEFT, e.code)) held.left = false;
     else if (matchesAny(KEYS.RIGHT, e.code)) held.right = false;
-    else if (matchesAny(KEYS.JUMP, e.code)) held.jump = false;
+    else if (matchesAny(KEYS.JUMP, e.code)) {
+      jumpSources.delete(e.code);
+      held.jump = jumpSources.size > 0;
+    }
     else if (matchesAny(KEYS.ATTACK, e.code)) held.attack = false;
     else if (matchesAny(KEYS.SPECIAL, e.code)) release(
       TOUCH_BUTTONS.find((b) => b.id === 'btn-special'),
@@ -199,5 +222,10 @@ export function createInput({ game, onManualPause }) {
     return drained;
   }
 
-  return { snapshot, drainEvents, activeTouchCount };
+  // Live held-state view for the player controller (read-only by contract).
+  function heldState() {
+    return held;
+  }
+
+  return { snapshot, drainEvents, heldState, activeTouchCount };
 }
