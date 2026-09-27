@@ -20,6 +20,25 @@ export const LOGICAL_W = 1280;
 export const LOGICAL_H = 720;
 export const MAX_DPR = 2;                  // effectiveDPR = min(devicePixelRatio, 2)
 
+// ---- physics (SPEC §36 — locked values) ----------------------------------
+export const GRAVITY = 2400;               // px/s^2
+export const MAX_FALL = 1500;             // terminal fall speed, px/s
+export const JUMP_SARA = -800;            // Sara jump velocity, px/s
+export const JUMP_RAHA = -690;            // Raha jump velocity, px/s
+export const JUMP_ARAM = -730;            // Aram jump velocity, px/s
+export const VAR_JUMP_EXTRA = 1800;       // extra gravity while jump released and vy < -180
+export const VAR_JUMP_MIN_VY = -180;      // variable-jump cut threshold (SPEC §36)
+export const COYOTE_TIME = 0.10;          // seconds after leaving ground
+export const JUMP_BUFFER = 0.12;          // seconds a jump press stays buffered
+
+// Horizontal movement: SPEC pins no numeric value (tweakable, §98 range
+// 50–1000). Deterministic authored default, applied with instant response —
+// no acceleration curve — so traversal is exactly predictable at 60 Hz.
+export const MOVE_SPEED = 360;            // px/s
+
+// ---- death (SPEC §43) -----------------------------------------------------
+export const FALL_DEATH_OFFSET = 400;     // player.y > zoneGroundY + this => fall death
+
 // ---- touch layout (SPEC §15) ---------------------------------------------
 // Visual faces: Left/Right 70, Jump 80, Attack 60, Special 60,
 // selectors 56, Pause 56. Each button's hit target expands by
@@ -50,3 +69,10 @@ export const GROUND_EDGE = '#181c24';
 export const TEXT_MAIN = '#e8ecff';
 export const TEXT_DIM = '#8b93c9';
 export const STAR_TONE = '#cfd8ff';
+
+// ---- character signature colors (SPEC §18) --------------------------------
+export const CHARACTER_COLORS = Object.freeze({
+  sara: '#4a9eff',
+  raha: '#e63946',
+  aram: '#9d4edd',
+});
