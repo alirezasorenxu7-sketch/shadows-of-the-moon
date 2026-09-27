@@ -8,7 +8,7 @@ Status legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 
 | # | Title | Branch | Depends on | Acceptance tests (§79/§80) | Status |
 |---|-------|--------|------------|------------------------------|--------|
-| 0 | Bootstrap: scaffold, docs, tooling, CI, Pages workflow, git init (NO push, NO branch/PR — §85/§110) | main | — | static checks only | [~] |
+| 0 | Bootstrap: scaffold, docs, tooling, CI, Pages workflow, git init (NO push, NO branch/PR — §85/§110) | main | — | static checks only (5/5 passed) | [x] |
 | 1 | Game loop; input; fixed timestep; time domains; pause/resume fundamentals | phase/01-game-loop | 0 | 79.7 visibility pause · 79.8 multi-touch · 79.13 portrait | [ ] |
 | 2 | Physics; jumping; collision; fall death foundation | phase/02-physics | 1 | 79.1 Sara double jump · 79.6 horizontal collision · 79.12 fall death | [ ] |
 | 3 | Sara rendering; animation; squash/stretch | phase/03-sara-rendering | 2 | — (screenshot verification) | [ ] |

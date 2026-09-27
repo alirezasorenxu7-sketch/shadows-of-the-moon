@@ -300,7 +300,8 @@ def main() -> int:
             use_browser = False
         else:
             pw_cm = sync_playwright()
-            browser = pw_cm.__enter__()
+            pw = pw_cm.__enter__()
+            browser = pw.chromium.launch(headless=True)
             results.append(load_check(browser))
     elif not args.static_only:
         results.append(Result("load: page boots without uncaught errors (§102.2)",
@@ -326,7 +327,9 @@ def main() -> int:
             results.append(Result(f"test: {test['name']}", "FAIL",
                                   f"{type(exc).__name__}: {exc}"))
 
-    if browser is not None and pw_cm is not None:
+    if browser is not None:
+        browser.close()
+    if pw_cm is not None:
         pw_cm.__exit__(None, None, None)
 
     print()
