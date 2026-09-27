@@ -3,8 +3,22 @@
 // input, renderer, pause semantics (portrait / visibility / manual — one
 // shared resume rule, NEVER automatic), and the DOM overlays. Phase 2 adds
 // the player controller: physics, jumping, collision, and the death
-// foundation (§36–§39, §43).
+// foundation (§36–§39, §43). Phase 4 adds the camera (§53): exponential
+// follow with look-ahead and horizontal clamping, updated inside the fixed
+// sim step at the player-domain rate — “Camera gameplay update: 1.0” (§10),
+// so the view never slows during Slow-motion.
 import './constants.js';
+import {
+  LOGICAL_W,
+  CAMERA_FACTOR_X,
+  CAMERA_FACTOR_Y,
+  CAMERA_LOOKAHEAD,
+  CAMERA_LOOKAHEAD_FAST,
+  CAMERA_LOOKAHEAD_SPEED,
+  CAMERA_BAND_TOP,
+  CAMERA_BAND_BOTTOM,
+  CAMERA_REST_GROUND_SCREEN_Y,
+} from './constants.js';
 import { createInput } from './input.js';
 import './physics.js';
 import './ai.js';
@@ -31,7 +45,43 @@ const game = {
   pauseReasons: new Set(),
   activeCheckpoint: null,   // no checkpoint until Phase 11 (§44)
   lastDeath: null,          // set on the first death of the run (§43)
+  camera: { x: 0, y: 0 },   // view center-top anchor, world px (§53, Phase 4)
 };
+
+// §53 camera follow — runs once per fixed sim step (dt = FIXED_DT, player
+// domain): framerate-independent exponential smoothing toward the target,
+// look-ahead in the facing direction (+20px above 300px/s), horizontal clamp
+// so the view never leaves the level. Vertical policy: comfort deadzone
+// [BAND_TOP, BAND_BOTTOM] in screen space while airborne; grounded play
+// re-anchors the zone ground at CAMERA_REST_GROUND_SCREEN_Y — normal jumps
+// keep the view still, deep falls (pits) and tall climbs move it.
+// NOTE Phase 11: respawn/checkpoint flow should snap the camera to its target
+// instead of easing across the world.
+function updateCamera(dt) {
+  const c = game.camera;
+  const dir = player.facing === 'left' ? -1 : 1;
+  let look = CAMERA_LOOKAHEAD;
+  if (Math.abs(player.vx) > CAMERA_LOOKAHEAD_SPEED) look += CAMERA_LOOKAHEAD_FAST;
+  const targetX = player.x + player.w / 2 + look * dir - LOGICAL_W / 2;
+
+  let targetY;
+  if (player.onGround) {
+    const zone = level.zoneAt(player.x);
+    targetY = zone.groundY - CAMERA_REST_GROUND_SCREEN_Y;
+  } else {
+    const screenY = player.y + player.h / 2 - c.y;   // player's screen-space y
+    if (screenY < CAMERA_BAND_TOP) targetY = player.y + player.h / 2 - CAMERA_BAND_TOP;
+    else if (screenY > CAMERA_BAND_BOTTOM) targetY = player.y + player.h / 2 - CAMERA_BAND_BOTTOM;
+    else targetY = c.y;                               // inside the comfort band: hold
+  }
+
+  c.x += (targetX - c.x) * (1 - Math.exp(-CAMERA_FACTOR_X * dt));
+  c.y += (targetY - c.y) * (1 - Math.exp(-CAMERA_FACTOR_Y * dt));
+
+  const maxX = level.worldWidth - LOGICAL_W;          // §53: never show beyond level
+  if (c.x < 0) c.x = 0;
+  else if (c.x > maxX) c.x = maxX;
+}
 
 const level = buildLevel(LEVEL_DATA);
 const player = createPlayer(level);   // a new run starts with Sara (§47)
@@ -47,6 +97,7 @@ const loop = createLoop({
     // enemy domain (dt * factor) is consumed from Phase 6 onward.
     const events = input.drainEvents();
     updatePlayer(game, player, input.heldState(), events, dt, level);
+    updateCamera(dt);   // §10 “Camera gameplay update: 1.0” — never slowed
   },
   render: () => renderer.render(game, level, player),
   onStateChange: updateOverlays,
@@ -140,6 +191,7 @@ function pushMetrics(frameInfo) {
   M.lastRenderTime = frameInfo.now;
   M.input = input.snapshot();
   M.player = playerSnapshot(player);
+  M.camera = { x: game.camera.x, y: game.camera.y };
   const zone = level.zoneAt(player.x);
   M.zone = { id: zone.id, groundY: zone.groundY };
   M.activeCheckpoint = game.activeCheckpoint;
@@ -161,6 +213,7 @@ if (window.__SOM_TEST__ === true) {
     lastRenderTime: 0,
     input: null,
     player: null,
+    camera: null,
     zone: null,
     activeCheckpoint: null,
     lastDeath: null,
