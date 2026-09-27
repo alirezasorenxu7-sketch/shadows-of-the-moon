@@ -172,6 +172,16 @@ except Exception as e:
 PY
 }
 
+som_repo_owner() { # prints the owner part of GITHUB_REPO (read in-process, no secrets)
+  python3 - "$ENV_FILE" <<'PY'
+import sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    if line.startswith("GITHUB_REPO="):
+        print(line.partition("=")[2].strip().split("/")[0])
+        break
+PY
+}
+
 # ------------------------------------------------------------ commands
 
 cmd_preflight() {
@@ -459,8 +469,7 @@ PY
   payload="$(python3 -c 'import json,sys; print(json.dumps({"title": sys.argv[1], "head": sys.argv[2], "base": "main", "body": sys.argv[3]}))' \
     "[Phase $phase] $title" "$branch" "$body")"
   local existing
-  existing="$(gh_api GET "/pulls?head=$(python3 -c 'import json,sys; print(sys.argv[1].split("/")[0])' \
-    "$(state_get branch 2>/dev/null || echo x)")%3A$branch&state=open" 2>/dev/null || true)"
+  existing="$(gh_api GET "/pulls?head=$(som_repo_owner)%3A$branch&state=open" 2>/dev/null || true)"
   local pr_url
   pr_url="$(python3 - "$existing" "$payload" <<'PY'
 import json, sys
@@ -491,7 +500,7 @@ cmd_merge() {
   branch="$(git -C "$REPO_DIR" branch --show-current)"
   [ "$(state_get state)" = "APPROVED" ] || die "merge only after APPROVED (SPEC §86)"
   local prs
-  prs="$(gh_api GET "/pulls?head=${GITHUB_REPO_OWNER:-x}%3A$branch&state=open" 2>/dev/null || true)"
+  prs="$(gh_api GET "/pulls?head=$(som_repo_owner)%3A$branch&state=open" 2>/dev/null || true)"
   pr_num="$(python3 - "$prs" <<'PY'
 import json, sys
 try:
