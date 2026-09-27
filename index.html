@@ -4,10 +4,40 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Shadows of the Moon</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <canvas id="game" width="1280" height="720"></canvas>
+
+<!-- Fixed-position gameplay touch controls (SPEC §14, §15).
+     Hidden during Pause and Portrait. Hit targets expand 10px on all
+     sides (padding), spacing keeps expanded regions disjoint. -->
+<div id="touch-controls">
+  <button id="btn-left" class="tc" type="button" aria-label="Move left"><span class="face">&#9664;</span></button>
+  <button id="btn-right" class="tc" type="button" aria-label="Move right"><span class="face">&#9654;</span></button>
+  <button id="btn-jump" class="tc" type="button" aria-label="Jump"><span class="face">JUMP</span></button>
+  <button id="btn-attack" class="tc" type="button" aria-label="Attack"><span class="face">ATK</span></button>
+  <button id="btn-special" class="tc" type="button" aria-label="Special"><span class="face">SPC</span></button>
+  <button id="btn-select-sara" class="tc" type="button" aria-label="Select Sara"><span class="face">SARA</span></button>
+  <button id="btn-select-raha" class="tc" type="button" aria-label="Select Raha"><span class="face">RAHA</span></button>
+  <button id="btn-select-aram" class="tc" type="button" aria-label="Select Aram"><span class="face">ARAM</span></button>
+  <button id="btn-pause" class="tc" type="button" aria-label="Pause"><span class="face">PAUSE</span></button>
+</div>
+
+<!-- Pause overlay: shown while paused (not portrait). Resume is an
+     explicit source (SPEC §8.4); the game NEVER auto-resumes. -->
+<div id="pause-overlay" class="overlay hidden">
+  <h1>Paused</h1>
+  <button id="btn-resume" type="button">Resume</button>
+</div>
+
+<!-- Rotation overlay: shown while the viewport is portrait (SPEC §8.2). -->
+<div id="rotation-overlay" class="overlay hidden">
+  <h1>Rotate your device</h1>
+  <p>Shadows of the Moon is played in landscape.</p>
+</div>
+
 <script type="module" src="src/main.js"></script>
 </body>
 </html>
