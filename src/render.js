@@ -66,13 +66,20 @@ for (let i = 0; i < 90; i += 1) {
 }
 
 // ---------------------------------------------------------------------------
-// Environment layer data (SPEC §55 — Phase 4). Everything below is authored
-// once at module init: deterministic formulas only, rect-only art, no
-// per-frame allocation. Layer-space x positions are authored so the key
-// landmarks stay composed on screen across the whole 5200px run:
-//   moon   (factor 0.15) at layer x 1000  -> screen 1000 → 412, ALWAYS visible
-//   castle (factor 0.30) at layer x 1588  -> enters at camX ~1030, and at the
-//        world's end (camX 3920) sits at screen 412 — exactly under the moon
+// Environment layer data (SPEC §55 — Phase 4, recomposed for the 15-chapter
+// ~50000px world in Phase 5). Everything below is authored once at module
+// init: deterministic formulas only, rect-only art, no per-frame allocation.
+// The parallax SYSTEM is unchanged (§55 locked factors); the landmark
+// layer-space anchors are recomposed for the amended world (camX 0..48720):
+//   moon   (factor 0.15) drifts from screen 1000 down to MOON_HOLD_X 400
+//          during the opening chapters (rate exactly 1000 − 0.15·camX,
+//          pixel-verified in Phase 4), then rides at 400 — ALWAYS visible
+//          for the whole journey (never culled).
+//   castle (factor 0.30) at layer x 15016 — enters ~camX 45,800 (chapter
+//          3-4's final stretch, the castle approach) and at the journey's
+//          end (camX 48720) sits at screen 400 — exactly under the moon.
+//   tower  (factor 0.30) at layer x 700 — the broken distant tower stays a
+//          spawn-area foreshadow (visible camX 0..~2333).
 // ---------------------------------------------------------------------------
 function mod(a, n) { return a - n * Math.floor(a / n); }
 
@@ -89,6 +96,7 @@ function buildDiscStrips(r) {
 }
 
 const MOON_LAYER_X = 1000;              // layer-space x (see header note)
+const MOON_HOLD_X = 400;                // screen x the moon rides after the opening drift
 const MOON_Y = 120;                     // screen-space center at rest
 const MOON_STRIPS = buildDiscStrips(38); // 76px moon disc
 const HALO_INNER = buildDiscStrips(54);  // blue-white halo shells
@@ -112,7 +120,7 @@ const CLOUDS = [
 // heights rise from the base line CASTLE_BASE_Y. Windows measure their y up
 // from the base. The spires are stepped shrinking rects ending in a narrow
 // tall tip — “sharp spires” in the rect art language.
-const CASTLE_LAYER_X = 1588;            // main mass (aligns under the moon at the end)
+const CASTLE_LAYER_X = 15016;           // main mass (aligns under the moon at the journey's end)
 const CASTLE_TOWER_LAYER_X = 700;       // distant broken tower (early foreshadow)
 const CASTLE_BASE_Y = 560;              // screen-space base at rest
 const CASTLE_BODIES = [
@@ -404,8 +412,16 @@ export function createRenderer(canvas) {
     }
   }
 
+  // Moon screen position (Phase 5 recomposition): drifts at the locked
+  // §55 rate during the opening chapters, then rides at MOON_HOLD_X — the
+  // distant moon visibly waits at the horizon for the whole journey.
+  function moonScreenX(cam) {
+    const x = MOON_LAYER_X - cam.x * PARALLAX_MOON;
+    return x < MOON_HOLD_X ? MOON_HOLD_X : x;
+  }
+
   function drawMoon(cam) {
-    const mx = MOON_LAYER_X - cam.x * PARALLAX_MOON;
+    const mx = moonScreenX(cam);
     const my = MOON_Y - cam.y * PARALLAX_MOON;
     if (mx < -90 || mx > LOGICAL_W + 90) return;  // cull with halo margin
     ctx.fillStyle = STAR_TONE;                    // blue-white halo shells
@@ -440,8 +456,9 @@ export function createRenderer(canvas) {
       ctx.fillRect(tx + 19, CASTLE_BASE_Y - 90 - offY, 5, 8);   // one dim window
       ctx.globalAlpha = 1;
     }
-    // main gothic mass — enters from the right during Zone 1 and frames the
-    // moon by the world's end (see the layer-space note at module top)
+    // main gothic mass — enters during the castle approach (chapter 3-4's
+    // final stretch) and frames the moon by the journey's end (see the
+    // layer-space note at module top)
     const sx = CASTLE_LAYER_X - offX;
     if (sx + 360 < 0 || sx > LOGICAL_W) return;
     ctx.fillStyle = CASTLE_TONE;
@@ -510,7 +527,7 @@ export function createRenderer(canvas) {
 
   // ---- atmosphere: moon rays, over the forest, under the world ----------
   function drawMoonRays(cam, gameTime) {
-    const mx = MOON_LAYER_X - cam.x * PARALLAX_MOON;
+    const mx = moonScreenX(cam);
     const my = MOON_Y - cam.y * PARALLAX_MOON;
     ctx.fillStyle = MOON_COLOR;
     for (let i = 0; i < 3; i += 1) {

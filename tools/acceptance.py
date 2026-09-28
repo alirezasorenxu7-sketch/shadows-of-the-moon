@@ -6,7 +6,7 @@ Usage:
   python tools/acceptance.py --screenshot NAME
 
 Behavior:
-  - Static checks ALWAYS run: required files, runtime size (< 200 KB),
+  - Static checks ALWAYS run: required files, runtime size (< 400 KB),
     forbidden-dependency scan, secrets-untracked.
   - Page-load smoke check runs when the test server is reachable
     (SOM_BASE_URL, default http://127.0.0.1:8000). Start the server first
@@ -32,7 +32,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE_URL = os.environ.get("SOM_BASE_URL", "http://127.0.0.1:8000")
-SIZE_LIMIT = 200 * 1024  # strictly below 200 KB (SPEC §77)
+SIZE_LIMIT = 400 * 1024  # strictly below 400 KB (amended SPEC §77)
 
 try:
     from playwright.sync_api import sync_playwright
@@ -168,9 +168,9 @@ def check_runtime_size() -> Result:
     total = sum(p.stat().st_size for p in files)
     kb = total / 1024.0
     if total >= SIZE_LIMIT:
-        return Result("static: runtime size < 200KB (§77)", "FAIL",
+        return Result("static: runtime size < 400KB (§77)", "FAIL",
                       f"{kb:.1f} KB over budget across {len(files)} files")
-    return Result("static: runtime size < 200KB (§77)", "PASS", f"{kb:.1f} KB / 195.3 KB")
+    return Result("static: runtime size < 400KB (§77)", "PASS", f"{kb:.1f} KB / 390.6 KB")
 
 
 def check_forbidden_deps() -> Result:
@@ -606,9 +606,9 @@ def test_horizontal_collision(browser):
 
 
 def test_fall_death(browser):
-    """SPEC §79.12: without an active checkpoint, falling past
-    zoneGroundY + 400 triggers the final death flow (frozen entity,
-    recorded death, input ignored, no auto-reset)."""
+    """SPEC §79.12: without an active checkpoint, falling past the active
+    chapter's groundY + 400 (amended §43) triggers the final death flow
+    (frozen entity, recorded death, input ignored, no auto-reset)."""
     name = "test: fall death final flow (§79.12)"
     ctx = _new_test_context(browser)
     page = _boot_page(ctx)
@@ -619,7 +619,10 @@ def test_fall_death(browser):
         m = _metrics(page)
         if m["activeCheckpoint"] is not None:
             return Result(name, "FAIL", "an active checkpoint exists — test requires none (§79.12)")
-        ground_y = m["zone"]["groundY"]
+        if m["chapter"]["id"] != "1-1" or m["chapter"]["act"] != 1:
+            return Result(name, "FAIL",
+                          f"chapter metrics wrong at spawn: {m['chapter']} (expected 1-1 / act 1)")
+        ground_y = m["chapter"]["groundY"]
         threshold = ground_y + 400
         page.keyboard.down("KeyD")           # walk right into the pit
         dead_state = None

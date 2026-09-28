@@ -439,20 +439,25 @@ Abilities: magic, slow-motion, shield.
 Base max HP per character.
 Heart containers are GLOBAL RUN-STATE upgrades, not character-specific.
 
-Exactly 3 heart containers. Exactly 1 per zone.
+Heart containers are assembled from heart fragments:
+3 fragments = 1 heart container.
+Fragments are awarded by chapter mini-bosses (§50); chapters
+substituting a special challenge award no fragment.
+Container total = authored fragment count / 3 (up to 5 when
+every chapter's mini-boss awards a fragment).
 
 heartCount
 effectiveMaxHp = baseMaxHp + heartCount
-Maximum: baseMaxHp + 3
+Maximum: baseMaxHp + authored container total
 
 Heart containers:
 - reset at start of new run
 - NOT persisted to localStorage
 - remain collected after checkpoint respawn
-- remain collected after Restart Zone
+- remain collected after Restart Chapter
 
-Health pickups: 10 total.
-Zone 1 = 3, Zone 2 = 3, Zone 3 = 4.
+Health pickups: authored per chapter in LEVEL_DATA
+(target ~1 per chapter).
 
 Each restores exactly 1 HP.
 HP cannot exceed effective max HP.
@@ -591,7 +596,8 @@ Brute: 3
 ==================================================
 
 Every enemy in LEVEL_DATA has a fixed stable string ID.
-Examples: z1_enemy_001, z1_enemy_002, z2_enemy_001, z3_enemy_005
+Chapter-scoped format: c<act>_<chapter>_enemy_<nnn>
+Examples: c1_1_enemy_001, c1_1_enemy_002, c2_3_enemy_001, c3_5_enemy_005
 
 IDs: authored, stable, deterministic, never runtime-generated.
 
@@ -606,7 +612,7 @@ On DEAD transition:
 
 Previously defeated enemies NEVER return as active entities during same run.
 
-After checkpoint respawn / Restart Zone: omitted from active enemy list.
+After checkpoint respawn / Restart Chapter: omitted from active enemy list.
 Optional cosmetic memorial only.
 
 They may NOT: move, attack, damage, collide, receive damage, award score, award kills, drop rewards.
@@ -822,7 +828,7 @@ Never permanently delete an entity for leaving camera.
 43. DEATH
 ==================================================
 
-Fall death: player.y > activeZoneGroundY + 400
+Fall death: player.y > activeChapterGroundY + 400
 HP death: player.hp <= 0
 
 Both use same checkpoint/death system.
@@ -831,15 +837,19 @@ Both use same checkpoint/death system.
 44. CHECKPOINTS
 ==================================================
 
-Exactly two:
-Checkpoint 1: beginning of Zone 2
-Checkpoint 2: beginning of Zone 3
+Exactly one at the start of each chapter: 15 total.
+Auto-activated on chapter entry.
+
+Additional mid-chapter checkpoints may be authored at designer
+discretion.
 
 Each: authored trigger rectangle, respawn position, checkpoint ID.
 Crossing rectangle activates.
 Remains active for current run.
 Newest checkpoint is active respawn.
-NOT persisted in localStorage.
+Chapter-start checkpoints persist to localStorage via save v2
+chapterCheckpoints (§63). Mid-chapter checkpoints are
+run-local, never persisted.
 
 ==================================================
 45. CHECKPOINT RESPAWN
@@ -849,7 +859,7 @@ On death with active checkpoint:
 - respawn at active checkpoint
 - restore HP to effective max HP
 - restore valid standing state
-- reset current respawn-zone transient combat/world state
+- reset current respawn-chapter transient combat/world state
 - preserve run progress
 
 Reset:
@@ -857,7 +867,7 @@ Reset:
 - projectiles
 - particles
 - breakable platforms
-- zone-local transient state
+- chapter-local transient state
 
 Preserve:
 - score
@@ -879,23 +889,23 @@ Do NOT:
 - restore collected collectibles
 - restore defeated enemies
 
-Previously completed earlier zones remain completed.
-Reset scope is respawn checkpoint's zone only.
+Previously completed earlier chapters remain completed.
+Reset scope is the respawn checkpoint's chapter only.
 
 ==================================================
-46. RESTART ZONE
+46. RESTART CHAPTER
 ==================================================
 
-Pause menu contains Restart Zone.
+Pause menu contains Restart Chapter.
 
-Restart Zone:
-- move to beginning of current zone
+Restart Chapter:
+- move to beginning of current chapter
 - restore HP to effective max HP
-- reset non-defeated enemies in that zone
+- reset non-defeated enemies in that chapter
 - reset projectiles
 - reset particles
 - reset breakable platforms
-- reset zone-local transient state
+- reset chapter-local transient state
 
 Preserve:
 - score, kills, currentRunCoins
@@ -910,20 +920,20 @@ Do NOT restore:
 - collected coins/crystals/health/hearts
 - defeated enemies
 
-Current zone intervals:
-Zone 1: [0, 1800)
-Zone 2: [1800, 3400)
-Zone 3: [3400, 5200]
-
+Chapter intervals:
+Chapters are contiguous and non-overlapping; each chapter's
+[startX, endX) derives from its authored length (~3000–4000px,
+§50). currentChapter is computed from the player's X position
+within the authored chapter bounds.
 No ambiguous boundaries.
-Restart Zone is NOT a death.
+Restart Chapter is NOT a death.
 
 ==================================================
 47. NEW RUN
 ==================================================
 
-Starts from Zone 1.
-Resets: score, kills, currentRunCoins, heartCount, collectedCoinIds, collectedCrystalIds, collectedHealthIds, collectedHeartIds, defeatedEnemyIds, Combo, active checkpoint, adaptive difficulty, zone completion, temporary effects, current character state.
+Starts from chapter 1-1.
+Resets: score, kills, currentRunCoins, heartCount, collectedCoinIds, collectedCrystalIds, collectedHealthIds, collectedHeartIds, defeatedEnemyIds, Combo, active checkpoint, adaptive difficulty, chapter completion (completedChapters), temporary effects, current character state.
 
 Persistent localStorage remains.
 
@@ -932,6 +942,9 @@ Persistent localStorage remains.
 ==================================================
 
 Every collectible has fixed authored ID.
+Collectible IDs are chapter-scoped, mirroring enemy IDs (§28):
+c<act>_<chapter>_<kind>_<nnn>
+Examples: c1_1_coin_001, c1_1_crystal_001, c2_3_health_001, c3_5_heart_001
 
 Run collections:
 collectedCoinIds
@@ -948,14 +961,15 @@ NOT persisted to localStorage.
 49. ADAPTIVE DIFFICULTY
 ==================================================
 
-Track consecutive deaths within same zone.
+Per-act (5 chapters per act).
+Track consecutive deaths within same act.
 Death includes death → checkpoint respawn.
-Restart Zone is NOT a death.
+Restart Chapter is NOT a death.
 
-Different zone entered: zoneDeathStreak = 0
-Death in current zone: zoneDeathStreak += 1
+Different act entered: actDeathStreak = 0 (reset on act change)
+Death in current act: actDeathStreak += 1
 
-zoneDeathStreak >= 3: adaptive activates for that zone for remainder of current run.
+actDeathStreak >= 3: adaptive activates for that act for remainder of current run.
 
 Effect: enemy movement speed multiplier = 0.8
 ONLY movement speed modified.
@@ -963,19 +977,41 @@ ONLY movement speed modified.
 Do NOT change: enemy HP, player damage, enemy damage, attack damage, score, player speed, player cooldowns.
 
 Persists until run ends.
-Different zone → its own counter.
+Different act → its own counter.
 
 ==================================================
 50. LEVEL STRUCTURE
 ==================================================
 
-Total world width: 5200px. Exactly three zones.
+Total world width: ~50000px. Exactly three acts of five chapters
+each: 15 chapters total. Zones are renamed ACTS internally.
 
-Zone 1: [0, 1800), length 1800, dark forest, Patroller, tutorial/no gaps
-Zone 2: [1800, 3400), length 1600, dark road, Chaser + Armored, first gaps/breakables
-Zone 3: [3400, 5200], length 1800, castle approach, all types, final battle
+Act 1 — Three Strangers: chapters 1-1 .. 1-5, dark forest,
+  Patroller focus; chapter 1-1 is the tutorial chapter — a gap-free
+  spawn stretch, with the first guarded gap near the chapter's end
+Act 2 — The Dark Road: chapters 2-1 .. 2-5, dark road,
+  Chaser + Armored, first gaps/breakables
+Act 3 — Heart of Darkness: chapters 3-1 .. 3-5, castle
+  approach, all enemy types, final battle
 
-Each zone: three authored subsections ~500–600px.
+Each chapter:
+- authored length ~3000–4000px (contiguous, non-overlapping)
+- ~8–10 minutes of play
+- structure: intro inscription → platforming/combat → mini-boss
+  or special challenge → completion screen
+- auto-activated checkpoint at chapter start (§44)
+- chapter-scoped enemy IDs (§28) and collectible IDs (§48)
+
+MINI-BOSS SYSTEM
+Every chapter ends with a mini-boss OR a special challenge
+(timed run, gauntlet) at designer's discretion.
+Mini-bosses reuse the Brute/Armored templates with size and HP
+multipliers:
+- HP: 6-10
+- distinct telegraphed attack pattern
+- reward: 1 heart fragment; 3 fragments assemble into 1 heart
+  container (§19)
+Special-challenge chapters award no heart fragment.
 
 ==================================================
 51. LEVEL DATA
@@ -984,17 +1020,26 @@ Each zone: three authored subsections ~500–600px.
 All gameplay placement authored in: src/level.js
 No random runtime placement.
 
-LEVEL_DATA contains fixed data for:
-- platforms, breakable platforms
-- enemy placement, enemy ID, enemy type, patrol bounds
-- coin placement, coin ID, coin rarity
-- crystal placement, crystal ID
-- health pickup placement, health pickup ID
-- heart placement, heart ID
-- checkpoint placement, checkpoint trigger, checkpoint respawn
+LEVEL_DATA contains exactly 15 chapter objects, one per chapter
+"1-1" .. "3-5". Each chapter object:
+{ id, name, platforms, enemies, collectibles, checkpoint,
+  miniBoss, inscription, completeText }
+
+- id: "1-1" .. "3-5"
+- name: authored chapter name
+- platforms: solid + breakable platforms
+- enemies: enemy placement, enemy ID, enemy type, patrol bounds
+- collectibles: coins (ID, rarity), crystals, health pickups,
+  hearts, heart fragments
+- checkpoint: chapter-start checkpoint trigger + respawn
+- miniBoss: mini-boss spec or special challenge
+- inscription: intro inscription text
+- completeText: chapter completion screen text
+
+Also authored:
+- mid-chapter checkpoints (designer discretion)
 - NPC placement
-- final arena enemy IDs
-- moon-gate location
+- final arena (chapter 3-5): Queen of Light + moon gate
 
 Rare coin placement authored.
 Target proportion ~15%. Design target only.
@@ -1004,11 +1049,13 @@ Never a runtime random-roll rule.
 52. FINAL BATTLE
 ==================================================
 
-Final arena in Zone 3.
-Enemies: 2 Brutes, 3 Armored. Each has fixed ID.
+Final arena at the end of chapter 3-5.
+Final boss: the Queen of Light — Aram's mother.
+Multi-phase battle (2-3 phases), distinct from chapter
+mini-bosses. Authored with the final content (Phase 12).
 
-Moon gate CLOSED while any required final enemy undefeated.
-Gate opens only when all five IDs appear in defeatedEnemyIds.
+Moon gate CLOSED while the Queen of Light remains undefeated.
+Gate opens only when the Queen is defeated.
 Open gate: white glowing circular portal.
 
 Level completes when currently active character touches open gate.
@@ -1079,9 +1126,9 @@ Breakables may have vertical cracks + subtle red highlights.
 56. AMBIENT PARTICLES
 ==================================================
 
-Zone 1: floating dry leaves
-Zone 2: subtle dust/road particles
-Zone 3: orange castle sparks
+Act 1: floating dry leaves
+Act 2: subtle dust/road particles
+Act 3: orange castle sparks
 Aram: purple motes
 Moon: light rays
 
@@ -1159,7 +1206,7 @@ Duration: 5s. Timer resets on kill.
 
 Resets on: 5s without kill OR player actually loses HP.
 
-Does NOT reset on: character switch, camera movement, zone transition, checkpoint respawn, Restart Zone.
+Does NOT reset on: character switch, camera movement, chapter transition, checkpoint respawn, Restart Chapter.
 
 Checkpoint/Restart preserve current Combo exactly.
 
@@ -1198,47 +1245,65 @@ Persistent ordering: S > A > B > C > null
 63. PERSISTENCE
 ==================================================
 
-Key: shadows_of_the_moon_save_v1
+Key: shadows_of_the_moon_save_v2
 
 Schema:
 {
-  "version": 1,
+  "version": 2,
   "bestScore": 0,
   "bestRank": null,
-  "totalCoins": 0
+  "totalCoins": 0,
+  "currentChapter": "1-3",
+  "completedChapters": ["1-1", "1-2"],
+  "chapterCheckpoints": {
+    "1-3": { "checkpointId": "c1_3_cp_start", "respawnX": 0, "respawnY": 0 }
+  }
 }
 
-At final game-over or victory:
-1. finalize score
-2. finalize rank
-3. read existing save
-4. merge
-5. write complete object once
+currentChapter: furthest chapter reached by the running run.
+completedChapters: chapters completed in order during that run.
+chapterCheckpoints: latest activated chapter-start checkpoint
+record per reached chapter (§44).
+
+Auto-save triggers — each a single complete write:
+1. entering a new chapter
+2. checkpoint death (death → checkpoint respawn)
+3. chapter completion
+4. final game-over or victory
+
+At each trigger:
+1. finalize affected values
+2. read existing save
+3. merge
+4. write complete object once
 
 const prev = readSave();
 const next = {
-  version: 1,
+  version: 2,
   bestScore: Math.max(prev?.bestScore ?? 0, currentRunScore),
   bestRank: highestRank(prev?.bestRank ?? null, currentRunRank),
-  totalCoins: (prev?.totalCoins ?? 0) + currentRunCoins
+  totalCoins: (prev?.totalCoins ?? 0) + currentRunCoins,
+  currentChapter, completedChapters, chapterCheckpoints
 };
 writeSave(next);
 
 currentRunCoins = coin pickups this run. Common and rare each count as 1.
 
-Malformed/unsupported save → treat as empty. Do NOT crash.
+Malformed/unsupported save (including version 1) → treat as empty.
+Do NOT crash. Do NOT migrate old formats.
 
 Single complete localStorage.setItem call. No partial writes.
+NOT per-frame. Same single-setItem rule.
 
 No save writes:
 - per frame, per second
 - on coin/crystal/health/heart pickup
-- at checkpoint
-- at Restart Zone
+- at Restart Chapter
 - during Pause
 
-Persistence ONLY at final game-over or victory.
-Checkpoint data never persisted.
+Run-scoped state (score, kills, collections, defeatedEnemyIds,
+Combo) is NEVER persisted. Resuming continues from the saved
+chapter checkpoint with fresh run state.
 Settings session-only.
 
 ==================================================
@@ -1256,7 +1321,7 @@ Single accidental activation must never erase.
 
 HUD:
 Top-left: character name + HP bar (character-color gradient)
-Top-center: chapter/zone + zone name
+Top-center: chapter id + chapter name
 Top-right: coins + kills
 Bottom-center: three character selectors
 
@@ -1270,7 +1335,7 @@ Victory screen: "The Moon Has Returned"
 Show stats.
 Button: Travel Again
 
-Pause overlay: Resume, Restart Zone, Sound toggle, Shake intensity control
+Pause overlay: Resume, Restart Chapter, Sound toggle, Shake intensity control
 
 NO user-controllable FPS cap setting.
 
@@ -1292,13 +1357,28 @@ Sound toggle session-only.
 67. ENVIRONMENTAL STORYTELLING
 ==================================================
 
-Start of each zone: stone inscription ~5s on-screen.
+Stone inscriptions: 45 authored total — 3 per chapter
+(intro stone at chapter start + two mid-chapter stones),
+~5s on-screen each.
 
-Zone 1: "This is the forest of Midnight. The moon was stolen..."
-Zone 2: "Sara found a trace of her brother."
-Zone 3: "The castle of shadows. Where the moon is imprisoned."
+Act-opening inscriptions (chapters 1-1, 2-1, 3-1) anchor the
+act themes:
+1-1: "This is the forest of Midnight. The moon was stolen..."
+2-1: "Sara found a trace of her brother."
+3-1: "The castle of shadows. Where the moon is imprisoned."
 
-Zone 3 entrance: 2s flashback (black bg, white text).
+Flashbacks: 15 authored total — 1 per chapter.
+2s presentation (black bg, white text), authored trigger.
+
+NPC dialogues: 15 authored total — 1 per chapter (§68).
+
+Character-switch quips: 30 authored total.
+Authored selection on switch. Never randomized.
+
+Chapter-complete texts: 15 authored total — 1 per chapter
+(chapter.completeText on the completion screen).
+
+Endings: 3 (unchanged; authored with final content).
 
 Presentation events.
 Do NOT pause gameplay unless explicitly required.
@@ -1307,8 +1387,8 @@ Do NOT pause gameplay unless explicitly required.
 68. NPC
 ==================================================
 
-One inert NPC in Zone 2.
-World X ~2600.
+One inert NPC per chapter: 15 total.
+World position authored in each chapter's data.
 Visual: stone statue silhouette.
 
 Only Aram can interact.
@@ -1346,7 +1426,7 @@ Entity files: player.js, enemy.js, projectile.js, particle.js, coin.js
 Global runtime state in one "game" object.
 Entity-local state on entities.
 
-game.score, game.gameTime, game.currentZone
+game.score, game.gameTime, game.currentChapter
 player.hp, player.vx, player.vy
 enemy.hp, enemy.vx
 projectile.life
@@ -1493,7 +1573,10 @@ Keep: screenshots/.gitkeep
 
 Combined raw uncompressed byte size of:
 index.html + style.css + src/**
-must be strictly below: 200 KB
+must be strictly below: 400 KB
+
+Raised from 200 KB by the act/chapter scope amendment to
+accommodate 15 chapters of authored level data.
 
 Excluded: tools, tests, docs, screenshots, .git, GitHub workflows.
 
@@ -1564,10 +1647,10 @@ Python Playwright + headless Chromium.
 6. defeated enemy NOT active
 7. no second kill score possible
 
-79.10 Restart Zone duplicate-score protection:
+79.10 Restart Chapter duplicate-score protection:
 1. defeat specific authored enemy
 2. record score
-3. Pause → Restart Zone
+3. Pause → Restart Chapter
 4. defeated enemy NOT active
 5. no duplicate score possible
 
@@ -1620,13 +1703,12 @@ Without SOM_TEST: testSafeArea has no effect.
 - increments kill count once
 - no re-award through duplicate DEAD transitions
 - no re-award after checkpoint
-- no re-award after Restart Zone
+- no re-award after Restart Chapter
 
 79.18 Final battle gate:
-- exactly 2 final Brutes
-- exactly 3 final Armored
-- closed while required enemy remains
-- opens after all five IDs defeated
+- final boss is the Queen of Light (multi-phase)
+- closed while the Queen remains undefeated
+- opens after all Queen phases complete
 - active player touching open gate completes level
 
 ==================================================
@@ -1667,7 +1749,7 @@ Runner:
 
 Validate:
 - required runtime files exist
-- runtime size < 200KB
+- runtime size < 400KB
 - no WebGL usage
 - no forbidden engine/framework import
 - no CDN runtime dependency
@@ -2020,7 +2102,7 @@ Feature phase DONE only when:
 3. current-phase tests pass
 4. prior-phase regression tests pass
 5. screenshot verification where applicable
-6. runtime size < 200KB
+6. runtime size < 400KB
 7. forbidden runtime deps absent
 8. working tree clean except ignored artifacts
 9. changes committed
@@ -2041,22 +2123,22 @@ Phase 1: game loop; input; fixed timestep; time domains; pause/resume fundamenta
 Phase 2: physics; jumping; collision; fall death foundation
 Phase 3: Sara rendering; animation; squash/stretch
 Phase 4: camera; parallax; moon; castle environment
-Phase 5: platform system; Zone 1 level data; enemy ID scheme; collectible ID scheme
+Phase 5: level data system for 15 chapters (schema, chapter intervals, chapter-scoped ID schemes); author chapters 1-1 through 1-3 as examples
 Phase 6: Patroller; player/enemy collision; base AI; defeatedEnemyIds integration
 Phase 7: Raha; Aram; switching; abilities; cooldown architecture
-Phase 8: Chaser; Armored; Brute; enemy animation states; group behavior; Brute radial attack
-Phase 9: coins; crystals; HUD; screens; localStorage
+Phase 8: Chaser; Armored; Brute; mini-boss variant of Brute; enemy animation states; group behavior; Brute radial attack
+Phase 9: coins; crystals; HUD; screens; localStorage save schema version 2 (chapter progress, auto-save triggers)
 Phase 10: hit-stop; shake; dust; dash trail; cooldown ring; damage flash
 
 Phase 11:
-- Milestone A: inscriptions; flashback; NPC
-- Milestone B: checkpoints; respawn rules
-- Milestone C: adaptive difficulty
+- Milestone A: inscriptions (45); flashback (15); NPC (15)
+- Milestone B: 15 chapter checkpoints; respawn rules
+- Milestone C: adaptive difficulty (per act)
 
 Phase 12:
-- Milestone A: Zone 2
-- Milestone B: Zone 3
-- Milestone C: final battle; moon gate
+- Milestone A: author chapters 1-4 .. 2-5 (Act 1 completion + Act 2)
+- Milestone B: author chapters 3-1 .. 3-4 (Act 3)
+- Milestone C: author chapter 3-5; final battle (Queen of Light); moon gate
 
 Phase 13: rewards; rank; pause menu; heart containers; health pickups; clear-record flow
 Phase 14: final acceptance; regression; manual test checklist; GitHub Pages deployment; multi-touch verification; README verification

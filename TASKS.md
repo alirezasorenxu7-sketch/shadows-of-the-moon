@@ -2,6 +2,13 @@
 
 Authoritative phase plan derived from SPEC §103. Update statuses as work completes.
 
+2026-09-28 SCOPE AMENDMENT (user-approved): the game is restructured from
+3 zones to 15 chapters (5 per act; zones renamed acts internally). World
+width ~50000px. Each chapter ~3000–4000px, ~8–10 min, ends with a mini-boss
+(brute/armored template, HP 6-10, heart-fragment reward) or special
+challenge. Final boss: Queen of Light (Aram's mother) at the end of 3-5.
+Save schema v2. Runtime budget 400KB. See amended SPEC §43–§53, §63, §67, §77.
+
 Status legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase overview
@@ -13,14 +20,14 @@ Status legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 | 2 | Physics; jumping; collision; fall death foundation | phase/02-physics | 1 | 79.1 Sara double jump · 79.6 horizontal collision · 79.12 fall death | [x] |
 | 3 | Sara rendering; animation; squash/stretch | phase/03-sara-rendering | 2 | — (screenshot verification) | [x] |
 | 4 | Camera; parallax; moon; castle environment | phase/04-camera-parallax | 3 | — (screenshot verification) | [x] |
-| 5 | Platform system; Zone 1 level data; enemy ID scheme; collectible ID scheme | phase/05-level-zone1 | 4 | — (level integrity covered by later tests) | [ ] |
+| 5 | Level data system for 15 chapters (schema, chapter intervals, chapter-scoped ID schemes); author chapters 1-1 through 1-3 as examples | phase/05-chapter-level-system | 4 | — (level integrity covered by later tests) | [x] |
 | 6 | Patroller; player-enemy collision; base AI; defeatedEnemyIds integration | phase/06-patroller-ai | 5 | 79.17 enemy score uniqueness | [ ] |
 | 7 | Raha; Aram; switching; abilities; cooldown architecture | phase/07-roster-abilities | 6 | 79.3 Aram slow-motion · 79.4 switching · 79.5 midair double jump | [ ] |
-| 8 | Chaser; Armored; Brute; enemy animation states; group behavior; Brute radial attack | phase/08-enemy-roster | 7 | 79.2 Raha slam | [ ] |
-| 9 | Coins; crystals; HUD; screens; localStorage | phase/09-collect-hud-saves | 8 | 79.14 fullscreen · 79.15 persistence | [ ] |
+| 8 | Chaser; Armored; Brute; mini-boss variant of Brute; enemy animation states; group behavior; Brute radial attack | phase/08-enemy-roster | 7 | 79.2 Raha slam | [ ] |
+| 9 | Coins; crystals; HUD; screens; localStorage save schema v2 (chapter progress, auto-save triggers) | phase/09-collect-hud-saves | 8 | 79.14 fullscreen · 79.15 persistence | [ ] |
 | 10 | Hit-stop; shake; dust; dash trail; cooldown ring; damage flash | phase/10-game-feel | 9 | — (regression only) | [ ] |
-| 11 | A: inscriptions/flashback/NPC · B: checkpoints/respawn · C: adaptive difficulty | phase/11-storytelling-checkpoints | 10 | 79.9 checkpoint duplicate score | [ ] |
-| 12 | A: Zone 2 · B: Zone 3 · C: final battle + moon gate | phase/12-world-zones-final | 11 | 79.18 final battle gate | [ ] |
+| 11 | A: inscriptions (45)/flashback (15)/NPC (15) · B: 15 chapter checkpoints/respawn · C: adaptive difficulty (per act) | phase/11-storytelling-checkpoints | 10 | 79.9 checkpoint duplicate score | [ ] |
+| 12 | A: chapters 1-4 .. 2-5 · B: chapters 3-1 .. 3-4 · C: chapter 3-5 + Queen of Light final battle + moon gate | phase/12-world-chapters-final | 11 | 79.18 final battle gate | [ ] |
 | 13 | Rewards; rank; pause menu; heart containers; health pickups; clear-record flow | phase/13-rewards-rank-menu | 12 | 79.10 restart duplicate score | [ ] |
 | 14 | Final acceptance; regression; manual checklist; Pages deploy; multi-touch verification; README verification | phase/14-final-acceptance | 13 | 79.11 performance · 79.16 safe-area · ALL (strict) | [ ] |
 
@@ -42,7 +49,7 @@ Status legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 | 79.14 fullscreen | 9 | 9 |
 | 79.15 persistence | 9 | 9 |
 | 79.9 checkpoint duplicate score | 11 | 11 |
-| 79.18 final battle gate | 12 | 12 |
+| 79.18 final battle gate (Queen of Light) | 12 | 12 |
 | 79.10 restart duplicate score | 13 | 13 |
 | 79.11 performance | 14 | 14 |
 | 79.16 safe-area | 14 | 14 |
@@ -57,9 +64,11 @@ executed failure (SPEC §80).
 Phases 11 and 12 each contain three milestones completed IN ORDER.
 Each milestone is an internal commit point on the phase branch:
 
-- Phase 11: **A** inscriptions + flashback + NPC → **B** checkpoints + respawn
-  rules → **C** adaptive difficulty
-- Phase 12: **A** Zone 2 → **B** Zone 3 → **C** final battle + moon gate
+- Phase 11: **A** inscriptions (45) + flashback (15) + NPC (15) →
+  **B** 15 chapter checkpoints + respawn rules → **C** adaptive
+  difficulty (per act)
+- Phase 12: **A** chapters 1-4 .. 2-5 → **B** chapters 3-1 .. 3-4 →
+  **C** chapter 3-5 + final battle (Queen of Light) + moon gate
 
 ## Per-phase Definition of Done (§102)
 
@@ -70,7 +79,8 @@ A feature phase is DONE only when:
 3. [ ] current-phase tests pass
 4. [ ] prior-phase regression tests pass
 5. [ ] screenshot verification where applicable
-6. [ ] runtime size < 200 KB (index.html + style.css + src/**)
+6. [ ] runtime size < 400 KB (index.html + style.css + src/**) — raised
+      from 200 KB by the act/chapter scope amendment (SPEC §77)
 7. [ ] forbidden runtime deps absent
 8. [ ] working tree clean except ignored artifacts
 9. [ ] changes committed (`<type>(<scope>): <description>`)

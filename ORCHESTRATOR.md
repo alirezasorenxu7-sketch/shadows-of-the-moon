@@ -187,7 +187,8 @@ PHASE=$(echo "$BRANCH" | sed -nE 's|^phase/([0-9]+)(-.+)?$|\1|p')   # else 14
 Steps: install Playwright (test env only) → start `python -m http.server 8000
 --bind 127.0.0.1` → wait for readiness (no tests before) →
 `python tools/acceptance.py --phase "$PHASE"` → upload screenshots artifact →
-stop server. Hard-fails on executed test failure, runtime size ≥ 200 KB,
+stop server. Hard-fails on executed test failure, runtime size ≥ 400 KB
+(raised from 200 KB by the act/chapter scope amendment),
 forbidden runtime dependency, missing required file.
 
 ## 6. GitHub Pages (§89)
@@ -203,7 +204,8 @@ deployment. Only runtime assets are staged: `index.html`, `style.css`,
 
 - Required files (all §75 files; `state/telegram_commands.json` is created on
   demand by the listener and intentionally gitignored per §76)
-- Runtime size: raw bytes of `index.html + style.css + src/**` strictly < 200 KB
+- Runtime size: raw bytes of `index.html + style.css + src/**` strictly < 400 KB
+  (raised from 200 KB by the act/chapter scope amendment, SPEC §77)
 - Forbidden runtime scan: no WebGL / non-2d canvas context, no forbidden
   engine/framework/bundler/package-manager references, no bare module
   specifiers (npm), no CDN/network usage (`fetch(`, XHR, WebSocket,
