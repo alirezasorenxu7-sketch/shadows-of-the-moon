@@ -5,29 +5,43 @@
 // logical = (client - renderOffset) / scale. effectiveDPR = min(dpr, 2);
 // imageSmoothingEnabled = false, re-asserted after every backing-store
 // resize. shadowBlur is reserved for enemy eyes only (§30, §78) — this
-// module never uses it. NO gameplay logic in rendering (§70).
+// module never uses it directly. NO gameplay logic in rendering (§70).
+//
+// Phase 6 canon visual fix (amended §4/§55): THE MOON IS GONE. No moon
+// disc, no halo, no rays anywhere — the stolen moon's light shows instead
+// as the "Light Behind the Castle": an act-driven horizon glow (Act 1
+// pitch black with stars only; Act 2 faint distant glow + tiny castle
+// silhouette on the horizon band; Act 3 clear glow + lightened horizon;
+// 3-5 flicker; the victory moon-rise is owned by the Phase 13 victory
+// screen).
+//
 // Scene: sky gradient, deterministic twinkling stars + dark clouds (§55
-// layer 1), moon with blue-white halo (layer 2), gothic castle silhouette
-// with sharp spires and flickering orange windows (layer 3), silhouetted
-// trees + ruined pillars (layer 4), the world itself (platforms, procedural
-// Sara §18.1 with §57 squash/stretch; Raha/Aram placeholder until Phase 7),
-// foreground grass (layer 5), then bottom fog + dark vignette + moon rays
-// atmosphere. The camera state (§53) lives on the game object and is only
-// READ here — rendering never moves it. All layer art is authored rects,
-// built once at module init (deterministic formulas, no Math.random §72,
-// zero per-frame allocation §78).
+// layer 1), the Light Behind the Castle (near-sky glow + distant
+// silhouette), gothic castle silhouette with sharp spires and flickering
+// orange windows (layer 3) with the glow behind its spires, silhouetted
+// trees + ruined pillars (layer 4), the world itself at global ZOOM 1.25
+// (§7/§53 — platforms with edge shadows, procedural Sara §18.1 with §57
+// squash/stretch scaled to the x1.3 silhouette, Patroller §30; Raha/Aram
+// placeholder until Phase 7), foreground grass (layer 5), then bottom fog +
+// dark vignette atmosphere. The camera state (§53) lives on the game object
+// and is only READ here — rendering never moves it. All layer art is
+// authored rects, built once at module init (deterministic formulas, no
+// Math.random §72, zero per-frame allocation §78).
 import {
   LOGICAL_W,
   LOGICAL_H,
   MAX_DPR,
+  ZOOM,
+  VIEW_W,
   SKY_TOP,
   SKY_MID,
   SKY_LOW,
   GROUND_FILL,
   GROUND_EDGE,
+  PLATFORM_SHADOW,
   CHARACTER_COLORS,
   STAR_TONE,
-  MOON_COLOR,
+  GLOW_LIGHT,
   CLOUD_TONE,
   CASTLE_TONE,
   CASTLE_WINDOW,
@@ -36,11 +50,15 @@ import {
   PILLAR_TONE,
   GRASS_TONE,
   PARALLAX_STARS,
-  PARALLAX_MOON,
+  PARALLAX_GLOW,
   PARALLAX_CASTLE,
   PARALLAX_TREES,
   PARALLAX_GRASS,
   SARA_PALETTE,
+  CHAR_ART_SCALE,
+  ENEMY_ARMOR,
+  ENEMY_CLOTH,
+  ENEMY_EYE,
   SQUASH_DURATION,
   SQUASH_JUMP_Y,
   SQUASH_JUMP_X,
@@ -52,6 +70,7 @@ import {
   ANIM_RUN_CYCLE,
   ANIM_HAIR_RISE,
   ANIM_HAIR_TRAIL,
+  ANIM_ENEMY_WALK,
 } from './constants.js';
 
 // Deterministic starfield: pure authored formula, no randomness (§72).
@@ -67,45 +86,52 @@ for (let i = 0; i < 90; i += 1) {
 
 // ---------------------------------------------------------------------------
 // Environment layer data (SPEC §55 — Phase 4, recomposed for the 15-chapter
-// ~50000px world in Phase 5). Everything below is authored once at module
-// init: deterministic formulas only, rect-only art, no per-frame allocation.
-// The parallax SYSTEM is unchanged (§55 locked factors); the landmark
-// layer-space anchors are recomposed for the amended world (camX 0..48720):
-//   moon   (factor 0.15) drifts from screen 1000 down to MOON_HOLD_X 400
-//          during the opening chapters (rate exactly 1000 − 0.15·camX,
-//          pixel-verified in Phase 4), then rides at 400 — ALWAYS visible
-//          for the whole journey (never culled).
+// ~50000px world in Phase 5; Phase 6 canon visual fix: the moon is REMOVED,
+// replaced by the act-driven "Light Behind the Castle"). Everything below
+// is authored once at module init: deterministic formulas only, rect-only
+// art, no per-frame allocation. The parallax SYSTEM is unchanged (§55
+// locked factors); the landmark layer-space anchors:
 //   castle (factor 0.30) at layer x 15016 — enters ~camX 45,800 (chapter
-//          3-4's final stretch, the castle approach) and at the journey's
-//          end (camX 48720) sits at screen 400 — exactly under the moon.
+//   3-4's final stretch, the castle approach) and at the journey's end
+//   (camX 48,976) sits at screen ~323.
 //   tower  (factor 0.30) at layer x 700 — the broken distant tower stays a
-//          spawn-area foreshadow (visible camX 0..~2333).
+//   spawn-area foreshadow (visible camX 0..~2333).
+//   light (factor 0.05) — the imprisoned moon's glow rides at the horizon
+//   anchor below from Act 2 onward, then hands over to the main castle
+//   mass as it enters during the 3-4 approach.
 // ---------------------------------------------------------------------------
 function mod(a, n) { return a - n * Math.floor(a / n); }
 
-// Crisp rect-strip disc raster (matches the rect-authored art language; no
-// arcs, no shadowBlur — §78). Strips are 4px tall, symmetric about center.
-function buildDiscStrips(r) {
-  const strips = [];
-  for (let y = -r; y < r; y += 4) {
-    const cy = y + 2;
-    const half = Math.sqrt(Math.max(0, r * r - cy * cy));
-    strips.push({ y, w: Math.floor(half) * 2 });
-  }
-  return strips;
-}
-
-const MOON_LAYER_X = 1000;              // layer-space x (see header note)
-const MOON_HOLD_X = 400;                // screen x the moon rides after the opening drift
-const MOON_Y = 120;                     // screen-space center at rest
-const MOON_STRIPS = buildDiscStrips(38); // 76px moon disc
-const HALO_INNER = buildDiscStrips(54);  // blue-white halo shells
-const HALO_OUTER = buildDiscStrips(72);
-const MOON_CRATERS = [
-  { x: -18, y: -14, w: 9, h: 7 }, { x: 6, y: -22, w: 7, h: 6 },
-  { x: 12, y: 4, w: 10, h: 8 }, { x: -8, y: 12, w: 6, h: 5 },
+// ---------------------------------------------------------------------------
+// "Light Behind the Castle" (amended §4/§55 canon). Act-driven progression
+// reads AUTHORITATIVE game state (game.currentAct / game.currentChapter):
+//   Act 1 (1-1..1-5) : pitch-black sky — NOT rendered (stars only)
+//   Act 2 (2-1..2-5) : faint glow + tiny distant castle silhouette on the
+//                      horizon band
+//   Act 3 (3-1..3-4) : clear glow, the horizon lightens
+//   3-5              : the glow flickers (final battle, authored Phase 12)
+//   Victory          : the moon rises — owned by the Phase 13 victory screen
+// ---------------------------------------------------------------------------
+const GLOW_ANCHOR_LAYER_X = 1200;        // layer-space anchor (factor 0.05)
+const GLOW_HOLD_X = 980;                 // horizon anchor the light rides at
+const GLOW_HORIZON_Y = 560;              // base line shared with the castle
+// Glow dome shells: authored stacked wide rects (soft light over the dark
+// sky — alpha stacks toward the dome's center). {w, h, a} relative to the
+// horizon base line.
+const GLOW_SHELLS = [
+  { w: 640, h: 200, a: 0.030 },
+  { w: 520, h: 160, a: 0.050 },
+  { w: 400, h: 120, a: 0.075 },
+  { w: 280, h: 80, a: 0.105 },
 ];
-const MOON_CRATER_TONE = '#c9d5ec';     // authored: a step darker than the disc
+// Tiny distant castle silhouette (Act 2+): three dark towers with spire
+// tips on the horizon band — the far promise of the Act 3 approach. As the
+// REAL castle mass enters during chapter 3-4, this stand-in fades out.
+const DISTANT_TOWERS = [
+  { x: -64, w: 30, h: 52 },
+  { x: -14, w: 40, h: 76 },
+  { x: 34, w: 26, h: 44 },
+];
 
 // Dark cloud silhouettes, 1600px-periodic, occluding stars (layer 1).
 const CLOUD_PERIOD = 1600;
@@ -308,7 +334,9 @@ function drawSara(ctx, player, game) {
   const flip = player.facing === 'left' ? -1 : 1;
   ctx.save();
   ctx.translate(player.x + player.w / 2, player.y + player.h);  // feet anchor
-  ctx.scale(sx * flip, sy);                      // mirror for facing left
+  // CHAR_ART_SCALE (amended §18): the Phase-3 art was authored for the old
+  // 48px-tall body; x1.3 matches it to the amended 62px hitbox silhouette.
+  ctx.scale(sx * flip * CHAR_ART_SCALE, sy * CHAR_ART_SCALE);   // mirror + scale
   drawSaraArm(ctx, -4, POSE.armBFwd, POSE.armBLift);   // back arm (behind)
   drawSaraLegs(ctx);
   drawSaraTorso(ctx);
@@ -325,6 +353,77 @@ function drawPlayerPlaceholder(ctx, player) {
   ctx.fillRect(player.x, player.y, player.w, player.h);
   ctx.fillStyle = 'rgba(232, 236, 255, 0.25)';
   ctx.fillRect(player.x, player.y, player.w, 3);
+}
+
+// ---------------------------------------------------------------------------
+// Patroller procedural enemy (SPEC §30, §31) — Phase 6
+// ---------------------------------------------------------------------------
+// Dark blocky body of stacked armor cubes (15 total: 4 rows x 3 torso
+// cubes + 2 pauldrons + 1 helm — inside §30's 15-20 range), long red scarf,
+// two glowing white eyes (the ONLY shadowBlur use, §30/§78), and a short
+// dark blade. Local space: feet-center anchor, +x = facing direction.
+// Poses are DERIVED presentation state read from entity facts (walkTime /
+// hurtT / staggerT / state) — nothing is ever written back (§70).
+function drawPatroller(ctx, e) {
+  const flip = e.facing === 'left' ? -1 : 1;
+  const walking = e.state === 'walk';
+  const walk = walking ? Math.sin(e.walkTime * ANIM_ENEMY_WALK) : 0;
+  const bob = walking ? Math.abs(walk) * 1.5 : 0;
+  const shake = e.hurtT > 0 ? Math.sin(e.hurtT * 80) * 2 : 0;   // §31 ~2px shake
+  ctx.save();
+  ctx.translate(e.x + e.w / 2 + shake, e.y + e.h);
+  ctx.scale(flip, 1);
+  const dark = e.staggerT > 0 ? 1 : 0;   // staggered: one tone darker
+
+  // legs: two dark stubs alternating with the walk cycle
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(-13 + walk * 2, -12, 10, 12);
+  ctx.fillRect(3 - walk * 2, -12, 10, 12);
+
+  // torso: 4 rows x 3 stacked armor cubes (12) with deterministic jitter
+  for (let row = 0; row < 4; row += 1) {
+    const y = -22 - row * 9 + bob;
+    for (let col = 0; col < 3; col += 1) {
+      ctx.fillStyle = ENEMY_ARMOR[(row * 3 + col + dark) % ENEMY_ARMOR.length];
+      const cw = 11 + ((row * 5 + col * 3) % 3);
+      const jx = ((row * 7 + col * 2) % 5) - 2;
+      ctx.fillRect(-17 + col * 11 + jx, y, cw, 9);
+    }
+  }
+  // pauldrons (2 cubes) + helm (1 cube with a crown ridge)
+  ctx.fillStyle = ENEMY_ARMOR[(3 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-21, -50 + bob, 9, 8);
+  ctx.fillRect(12, -50 + bob, 9, 8);
+  ctx.fillStyle = ENEMY_ARMOR[(2 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-8, -62 + bob, 16, 12);
+  ctx.fillRect(-5, -65 + bob, 10, 3);
+
+  // long red scarf trailing behind (§30) — sways with the walk cycle
+  const sway = Math.sin(e.walkTime * ANIM_ENEMY_WALK * 0.5) * 3;
+  ctx.fillStyle = ENEMY_CLOTH[0];
+  ctx.fillRect(-24 - Math.abs(walk) * 3, -48 + bob, 13, 30);
+  ctx.fillStyle = ENEMY_CLOTH[1];
+  ctx.fillRect(-28 - Math.abs(walk) * 4 + sway, -42 + bob, 10, 22);
+
+  // short dark blade at the front hip (§30)
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(14, -28 + bob, 3, 14);
+
+  // two glowing white eyes — the ONLY shadowBlur use (§30, §78)
+  ctx.save();
+  ctx.shadowColor = ENEMY_EYE;
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = ENEMY_EYE;
+  ctx.fillRect(-3, -58 + bob, 3, 3);
+  ctx.fillRect(3, -58 + bob, 3, 3);
+  ctx.restore();
+
+  // §31 hurt flash overlay
+  if (e.hurtT > 0) {
+    ctx.fillStyle = 'rgba(240, 240, 240, 0.30)';
+    ctx.fillRect(-22, -66 + bob, 44, 66);
+  }
+  ctx.restore();
 }
 
 export function createRenderer(canvas) {
@@ -404,43 +503,60 @@ export function createRenderer(canvas) {
     }
   }
 
-  // ---- §55 layer 2: moon + blue-white halo (on screen the whole run) -----
-  function drawStrips(strips, cx, cy) {
-    for (let i = 0; i < strips.length; i += 1) {
-      const s = strips[i];
-      ctx.fillRect(cx - s.w / 2, cy + s.y, s.w, 4);
+  // ---- §55 (amended): the Light Behind the Castle --------------------------
+  // Act-driven intensity: 0 in Act 1 (pitch black, stars only), faint in
+  // Act 2, clear in Act 3; chapter 3-5 flickers during the final battle.
+  // Deterministic composite sines — no randomness (§72).
+  function glowIntensity(game, gameTime) {
+    if (game.currentAct < 2) return 0;
+    let k = game.currentAct === 2 ? 0.45 : 1.0;
+    if (game.currentChapter === '3-5') {
+      k *= 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(gameTime * 6.0))
+                 * (0.6 + 0.4 * Math.sin(gameTime * 2.3));
     }
+    return k;
   }
 
-  // Moon screen position (Phase 5 recomposition): drifts at the locked
-  // §55 rate during the opening chapters, then rides at MOON_HOLD_X — the
-  // distant moon visibly waits at the horizon for the whole journey.
-  function moonScreenX(cam) {
-    const x = MOON_LAYER_X - cam.x * PARALLAX_MOON;
-    return x < MOON_HOLD_X ? MOON_HOLD_X : x;
-  }
-
-  function drawMoon(cam) {
-    const mx = moonScreenX(cam);
-    const my = MOON_Y - cam.y * PARALLAX_MOON;
-    if (mx < -90 || mx > LOGICAL_W + 90) return;  // cull with halo margin
-    ctx.fillStyle = STAR_TONE;                    // blue-white halo shells
-    ctx.globalAlpha = 0.05;
-    drawStrips(HALO_OUTER, mx, my);
-    ctx.globalAlpha = 0.10;
-    drawStrips(HALO_INNER, mx, my);
+  // One glow dome: stacked translucent wide rects rising from the horizon
+  // base line behind `cx`. Rect-only art; no shadowBlur (§78).
+  function drawGlowDome(cx, k, baseY) {
+    if (k <= 0) return;
+    ctx.fillStyle = GLOW_LIGHT;
+    for (let i = 0; i < GLOW_SHELLS.length; i += 1) {
+      const s = GLOW_SHELLS[i];
+      ctx.globalAlpha = s.a * k;
+      ctx.fillRect(cx - s.w / 2, baseY - s.h, s.w, s.h);
+    }
     ctx.globalAlpha = 1;
-    ctx.fillStyle = MOON_COLOR;
-    drawStrips(MOON_STRIPS, mx, my);
-    ctx.fillStyle = MOON_CRATER_TONE;             // surface craters
-    for (let i = 0; i < MOON_CRATERS.length; i += 1) {
-      const cr = MOON_CRATERS[i];
-      ctx.fillRect(mx + cr.x, my + cr.y, cr.w, cr.h);
+  }
+
+  // The distant horizon band (Act 2+): the glow plus its tiny castle
+  // silhouette stand-in. The stand-in fades out as the REAL castle mass
+  // takes over during the chapter 3-4 approach (main-castle screen x below
+  // ~2400 starts fading, fully gone by ~1200).
+  function drawLightBehindCastle(cam, game, gameTime) {
+    const k = glowIntensity(game, gameTime);
+    if (k <= 0) return;                     // Act 1: pitch black (§55)
+    let x = GLOW_ANCHOR_LAYER_X - cam.x * PARALLAX_GLOW;
+    if (x < GLOW_HOLD_X) x = GLOW_HOLD_X;   // rides at the horizon anchor
+    const offY = cam.y * PARALLAX_GLOW;
+    drawGlowDome(x, k, GLOW_HORIZON_Y - offY);
+    const mainX = CASTLE_LAYER_X - cam.x * PARALLAX_CASTLE;
+    const fade = Math.max(0, Math.min(1, (mainX - 1200) / 1200));
+    if (fade > 0) {
+      ctx.globalAlpha = fade;
+      ctx.fillStyle = CASTLE_TONE;
+      for (let i = 0; i < DISTANT_TOWERS.length; i += 1) {
+        const t = DISTANT_TOWERS[i];
+        ctx.fillRect(x + t.x, GLOW_HORIZON_Y - t.h - offY, t.w, t.h + 20);
+        ctx.fillRect(x + t.x + t.w / 2 - 3, GLOW_HORIZON_Y - t.h - 10 - offY, 6, 10);
+      }
+      ctx.globalAlpha = 1;
     }
   }
 
   // ---- §55 layer 3: gothic castle + sharp spires + orange windows --------
-  function drawCastle(cam, gameTime) {
+  function drawCastle(cam, game, gameTime) {
     const offX = cam.x * PARALLAX_CASTLE;
     const offY = cam.y * PARALLAX_CASTLE;
     // distant broken tower — an early foreshadow of what waits at the end
@@ -457,10 +573,11 @@ export function createRenderer(canvas) {
       ctx.globalAlpha = 1;
     }
     // main gothic mass — enters during the castle approach (chapter 3-4's
-    // final stretch) and frames the moon by the journey's end (see the
-    // layer-space note at module top)
+    // final stretch). The "Light Behind the Castle" renders BEHIND the
+    // spires (amended §55): the distant stand-in has faded out by now.
     const sx = CASTLE_LAYER_X - offX;
     if (sx + 360 < 0 || sx > LOGICAL_W) return;
+    drawGlowDome(sx + 170, glowIntensity(game, gameTime) * 0.9, CASTLE_BASE_Y - offY);
     ctx.fillStyle = CASTLE_TONE;
     for (let i = 0; i < CASTLE_BODIES.length; i += 1) {
       const b = CASTLE_BODIES[i];
@@ -525,31 +642,28 @@ export function createRenderer(canvas) {
     }
   }
 
-  // ---- atmosphere: moon rays, over the forest, under the world ----------
-  function drawMoonRays(cam, gameTime) {
-    const mx = moonScreenX(cam);
-    const my = MOON_Y - cam.y * PARALLAX_MOON;
-    ctx.fillStyle = MOON_COLOR;
-    for (let i = 0; i < 3; i += 1) {
-      const ang = 1.62 + i * 0.19;                 // fan: down → down-left
-      const w = 20 + i * 7;
-      const a = 0.030 + 0.018 * (0.5 + 0.5 * Math.sin(gameTime * 0.8 + i * 2.1));
-      ctx.save();
-      ctx.translate(mx, my);
-      ctx.rotate(ang);
-      ctx.globalAlpha = a;
-      ctx.fillRect(-w / 2, 20, w, 560);
-      ctx.restore();
+  // ---- atmosphere (amended §55): horizon light band -------------------------
+  // Act 3: "the horizon lightens" — a soft light band along the horizon,
+  // drawn over the background bands, under the world. Cached gradient.
+  let horizonGradient = null;
+  function drawHorizonLight(game) {
+    if (game.currentAct < 3) return;
+    if (!horizonGradient) {
+      horizonGradient = ctx.createLinearGradient(0, 500, 0, 620);
+      horizonGradient.addColorStop(0, 'rgba(232, 240, 255, 0)');
+      horizonGradient.addColorStop(0.55, 'rgba(232, 240, 255, 0.05)');
+      horizonGradient.addColorStop(1, 'rgba(232, 240, 255, 0)');
     }
-    ctx.globalAlpha = 1;
+    ctx.fillStyle = horizonGradient;
+    ctx.fillRect(0, 500, LOGICAL_W, 120);
   }
 
   function drawPlatforms(platforms, cam) {
-    // Placeholder geometry rendering (§55 platform tones). The pit between
-    // ground A and ground B is simply void — sky shows through. Render-only
-    // culling against the camera view (§78).
+    // Geometry rendering (§55 platform tones + amended edge treatment).
+    // Render-only culling against the ZOOMED camera view (§42/§78): the
+    // visible world window is VIEW_W wide (§7/§53).
     const left = cam.x - 8;
-    const right = cam.x + LOGICAL_W + 8;
+    const right = cam.x + VIEW_W + 8;
     for (let i = 0; i < platforms.length; i += 1) {
       const p = platforms[i];
       if (p.x + p.w < left || p.x > right) continue;
@@ -557,15 +671,39 @@ export function createRenderer(canvas) {
       ctx.fillRect(p.x, p.y, p.w, p.h);
       ctx.fillStyle = GROUND_EDGE;
       ctx.fillRect(p.x, p.y, p.w, 3);            // lit top edge
+      // Amended §55: subtle 1-2px dark shadow under each platform edge +
+      // side shading — the platform visual treatment matches the x1.3
+      // world scale.
+      ctx.fillStyle = PLATFORM_SHADOW;
+      ctx.fillRect(p.x, p.y + p.h - 2, p.w, 2);            // under-edge shadow
+      ctx.fillRect(p.x, p.y + 3, 2, p.h - 5);              // left side shade
+      ctx.fillRect(p.x + p.w - 2, p.y + 3, 2, p.h - 5);    // right side shade
+    }
+  }
+
+  // ---- enemies (§30/§31/§42) -------------------------------------------------
+  function drawEnemies(enemies, cam) {
+    // §31: dead enemies leave presentation (a cosmetic memorial is optional,
+    // §28 — not authored). Render-only culling (§42/§78) against the zoomed
+    // view; gameplay entities are NOT removed, merely skipped.
+    for (let i = 0; i < enemies.length; i += 1) {
+      const e = enemies[i];
+      if (e.dead) continue;
+      if (e.x + e.w < cam.x - 20 || e.x > cam.x + VIEW_W + 20) continue;
+      if (e.type === 'patroller') drawPatroller(ctx, e);
     }
   }
 
   function drawPlayer(game, player, cam) {
     // Render-only culling (§78): never draw what the camera cannot see;
     // gameplay entities are NOT removed, merely skipped in presentation.
-    if (player.x + player.w < cam.x - 20 || player.x > cam.x + LOGICAL_W + 20) return;
+    if (player.x + player.w < cam.x - 20 || player.x > cam.x + VIEW_W + 20) return;
+    // §22: the sprite flashes ~20 Hz while invulnerable.
+    const blink = player.invuln > 0 && Math.floor(game.gameTime * 20) % 2 === 0;
+    if (blink) ctx.globalAlpha = 0.35;
     if (player.character === 'sara') drawSara(ctx, player, game);
     else drawPlayerPlaceholder(ctx, player);
+    if (blink) ctx.globalAlpha = 1;
   }
 
   // ---- §55 layer 5: foreground grass (fastest layer, screen-bottom anchor)
@@ -626,20 +764,24 @@ export function createRenderer(canvas) {
   }
 
   // Full §55 layer stack, back to front. The camera (§53) is only READ
-  // here (§70): the world layer translates by the camera position, each
-  // parallax layer by cam * its factor.
-  function render(game, level, player) {
+  // here (§70): the world layer renders through the global ZOOM transform
+  // (§7/§53) — ctx.scale(ZOOM) then translate by the camera position — so
+  // the visible gameplay window is VIEW_W x VIEW_H world units; each
+  // parallax layer offsets by cam * its factor in logical canvas space.
+  function render(game, level, player, enemies) {
     const cam = game.camera;
     drawSky();
     drawStars(cam, game.gameTime);
     drawClouds(cam);
-    drawMoon(cam);
-    drawCastle(cam, game.gameTime);
+    drawLightBehindCastle(cam, game, game.gameTime);   // amended §55 canon
+    drawCastle(cam, game, game.gameTime);
     drawTrees(cam);
-    drawMoonRays(cam, game.gameTime);
+    drawHorizonLight(game);                            // Act 3: horizon lightens
     ctx.save();
-    ctx.translate(-cam.x, -cam.y);                 // world space (§53)
+    ctx.scale(ZOOM, ZOOM);                             // §7/§53: global ZOOM 1.25
+    ctx.translate(-cam.x, -cam.y);                     // world space (§53)
     drawPlatforms(level.platforms, cam);
+    drawEnemies(enemies || [], cam);
     drawPlayer(game, player, cam);
     ctx.restore();
     drawGrass(cam);

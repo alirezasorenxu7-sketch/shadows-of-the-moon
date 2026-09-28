@@ -32,17 +32,18 @@ import {
 } from '../constants.js';
 import { moveAndCollide } from '../physics.js';
 
-// Authored roster content (SPEC §18): hitbox, HP, jumps per airborne cycle.
-// Jump VELOCITIES are tunables in constants.js (§98 tweak allowlist).
+// Authored roster content (SPEC §18; amended x1.3 scale pass): hitbox, HP,
+// jumps per airborne cycle. Jump VELOCITIES are tunables in constants.js
+// (§98 tweak allowlist). Physics constants are UNCHANGED (§36 locked).
 export const ROSTER = Object.freeze({
   sara: Object.freeze({
-    key: 'sara', w: 30, h: 48, maxHp: 5, maxJumps: 2, jumpV: JUMP_SARA,
+    key: 'sara', w: 38, h: 62, maxHp: 5, maxJumps: 2, jumpV: JUMP_SARA,
   }),
   raha: Object.freeze({
-    key: 'raha', w: 34, h: 48, maxHp: 8, maxJumps: 1, jumpV: JUMP_RAHA,
+    key: 'raha', w: 44, h: 62, maxHp: 8, maxJumps: 1, jumpV: JUMP_RAHA,
   }),
   aram: Object.freeze({
-    key: 'aram', w: 32, h: 48, maxHp: 6, maxJumps: 1, jumpV: JUMP_ARAM,
+    key: 'aram', w: 40, h: 62, maxHp: 6, maxJumps: 1, jumpV: JUMP_ARAM,
   }),
 });
 
@@ -65,7 +66,8 @@ export function createPlayer(level, characterKey = 'sara') {
     jumpsUsed: 0,          // jumps consumed in the current airborne cycle
     coyote: 0,             // seconds of coyote time remaining (§36)
     jumpBuffer: 0,         // seconds a jump press stays buffered (§36)
-    invuln: 0,             // damage i-frames (seconds; used from Phase 7+)
+    invuln: 0,             // damage i-frames (seconds; §22, driven from Phase 6)
+    prevY: 0,              // top-left y before this step's vertical pass (§40 stomp)
     dead: false,
     deathReason: null,     // 'fall' | 'hp'
     // ---- presentation facts (Phase 3; read-only for rendering, §57) ------
@@ -113,6 +115,8 @@ export function updatePlayer(game, player, held, events, dt, level) {
   // ---- timers ---------------------------------------------------------------
   if (!player.onGround) player.coyote = Math.max(0, player.coyote - dt);
   if (player.jumpBuffer > 0) player.jumpBuffer = Math.max(0, player.jumpBuffer - dt);
+  if (player.invuln > 0) player.invuln = Math.max(0, player.invuln - dt);   // §22
+  player.prevY = player.y;                       // §40 stomp crossing reference
 
   // ---- input edges: only the jump edge matters in Phase 2 ------------------
   // A new edge (re)arms the jump buffer; the buffer fires at most ONE jump
@@ -198,6 +202,7 @@ export function playerSnapshot(player) {
     jumpsUsed: player.jumpsUsed,
     coyote: player.coyote,
     jumpBuffer: player.jumpBuffer,
+    invuln: player.invuln,
     dead: player.dead,
     deathReason: player.deathReason,
     // presentation facts (§74 player state instrumentation)

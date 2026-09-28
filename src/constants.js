@@ -19,6 +19,24 @@ export const HIT_STOP = 0.07;              // seconds
 export const LOGICAL_W = 1280;
 export const LOGICAL_H = 720;
 export const MAX_DPR = 2;                  // effectiveDPR = min(devicePixelRatio, 2)
+// Global camera ZOOM (amended §7/§53): the world transform renders at 1.25x
+// over the UNCHANGED 1280x720 logical canvas (coordinate + contain-scaling
+// space). Visible gameplay window: ~1024 x 576 world units. A 62px-tall
+// character renders ~77px on screen (~13% of viewport height). Touch mapping
+// stays in the 1280x720 logical canvas space.
+export const ZOOM = 1.25;
+export const VIEW_W = LOGICAL_W / ZOOM;    // 1024 — §53 clamp width
+export const VIEW_H = LOGICAL_H / ZOOM;    // 576 — visible world height
+
+// ---- world scale pass (amended §18) ---------------------------------------
+// Character dimensions are x1.3 (Sara 30x48 -> 38x62; Raha 34x48 -> 44x62;
+// Aram 32x48 -> 40x62) — authored as literals in ROSTER/enemy tables.
+// CHAR_ART_SCALE scales the Phase-3 procedural Sara art (authored for the
+// 48px-tall body) up to the amended 62px silhouette.
+export const CHAR_ART_SCALE = 1.3;
+// Collectible dimensions scale x1.3 (amended §48) — applied to pickup radii
+// when collectible entities land in Phase 9; authored here as the locked hook.
+export const COLLECTIBLE_SCALE = 1.3;
 
 // ---- physics (SPEC §36 — locked values) ----------------------------------
 export const GRAVITY = 2400;               // px/s^2
@@ -109,15 +127,19 @@ export const CAMERA_BAND_TOP = 200;          // px; above this the camera rises
 export const CAMERA_BAND_BOTTOM = 660;       // px; below this the camera drops
 export const CAMERA_REST_GROUND_SCREEN_Y = 656; // ground top rest line on screen
 
-// ---- parallax layers (SPEC §55 — locked factors) ---------------------------
+// ---- parallax layers (SPEC §55 — locked factors; amended: NO moon layer) ---
 export const PARALLAX_STARS = 0.1;           // 1. stars / dark clouds
-export const PARALLAX_MOON = 0.15;           // 2. moon + blue-white halo
-export const PARALLAX_CASTLE = 0.3;          // 3. gothic castle + spires + windows
-export const PARALLAX_TREES = 0.5;           // 4. silhouetted trees + ruined pillars
-export const PARALLAX_GRASS = 1.2;           // 5. foreground grass
+// (the moon layer is REMOVED — amended canon §4/§55: the Shadows stole the
+// moon; there is no moon disc, halo, or rays anywhere)
+export const PARALLAX_CASTLE = 0.3;          // 2. gothic castle + spires + windows
+export const PARALLAX_TREES = 0.5;           // 3. silhouetted trees + ruined pillars
+export const PARALLAX_GRASS = 1.2;           // 4. foreground grass
+// "Light Behind the Castle" (amended §55): near-sky drift for the horizon
+// glow — the imprisoned light sits beyond every layer, so it barely moves.
+export const PARALLAX_GLOW = 0.05;
 
 // ---- environment palette (SPEC §55 — locked tones + authored detail shades) -
-export const MOON_COLOR = '#e8f0ff';         // moon disc (§55)
+export const GLOW_LIGHT = '#e8f0ff';        // glow / moonrise light (former moon palette, re-purposed §55)
 export const CLOUD_TONE = '#0a0f1c';         // dark cloud silhouettes (authored)
 export const CASTLE_TONE = '#080b14';        // gothic castle silhouette (authored)
 export const CASTLE_WINDOW = '#e07b2a';      // orange windows (authored)
@@ -126,6 +148,39 @@ export const TREE_TONE = '#070a12';          // tree silhouettes (authored)
 export const PILLAR_TONE = '#0a0d16';       // ruined pillars (authored)
 export const GRASS_TONE = '#04060c';         // foreground grass (authored)
 export const FOG_TONE = '#05070f';           // bottom fog band (authored)
+export const PLATFORM_SHADOW = '#05070d';    // under-edge shadow tone (amended §55)
+
+// ---- enemies (SPEC §27–§33, §58 — Phase 6: Patroller) ----------------------
+// Dimensions amended x1.3 to match the character scale pass (§18/§29);
+// speeds and HP unchanged. Phase 8 extends the roster (Chaser/Armored/Brute).
+export const ENEMY_TYPES = Object.freeze({
+  patroller: Object.freeze({
+    key: 'patroller', w: 42, h: 62, speed: 45, hp: 1,
+    contactDamage: 1, score: 100,
+  }),
+});
+// §31 animation: hurt 0.15 s with ~2px shake; 2 hits within 1.0 s -> 0.5 s
+// stagger; walk/run hysteresis thresholds (Patroller speed 45 -> always walk).
+export const ENEMY_HURT_T = 0.15;
+export const ENEMY_STAGGER_T = 0.5;
+export const ENEMY_STAGGER_WINDOW = 1.0;
+export const ENEMY_EDGE_PAUSE_T = 0.2;      // §34 edge detection: pause then turn
+// §30 visual style: stacked armor cubes, long red scarf, glowing white eyes.
+export const ENEMY_ARMOR = Object.freeze(['#0a0a0a', '#141414', '#1e1e1e', '#2a2a2a']);
+export const ENEMY_CLOTH = Object.freeze(['#8a1010', '#a01818', '#c02020']);
+export const ENEMY_EYE = '#f0f0f0';        // the ONLY tone allowed shadowBlur (§30)
+
+// ---- stomp (SPEC §40 — locked) ----------------------------------------------
+export const STOMP_MIN_VY = 200;            // player.vy must exceed this
+export const STOMP_DAMAGE = 1;
+export const STOMP_BOUNCE = -480;           // bounce velocity (locked §40)
+
+// ---- player damage invulnerability (SPEC §22) ------------------------------
+export const INVULN_T = 1.0;                // seconds after real HP loss
+
+// ---- combo (SPEC §60) -------------------------------------------------------
+export const COMBO_WINDOW = 5.0;            // kill streak duration, seconds
+export const COMBO_MIN_STREAK = 3;          // 3rd kill ACTIVATES; x2 from 4th
 
 // ---- squash & stretch (SPEC §57 — locked factors, Phase 3) -----------------
 export const SQUASH_DURATION = 0.1;   // seconds to ease back to neutral ("~0.1s")
@@ -141,3 +196,4 @@ export const ANIM_HAIR_SWAY = 2.2;    // idle hair sway rate, rad/s
 export const ANIM_RUN_CYCLE = 13.0;   // run leg-cycle rate, rad/s
 export const ANIM_HAIR_RISE = 0.010;  // hair rise per px/s of fall speed
 export const ANIM_HAIR_TRAIL = 0.020; // hair back-sweep per px/s of run speed
+export const ANIM_ENEMY_WALK = 7.0;   // enemy walk-cycle rate, rad/s (§31 walk state)

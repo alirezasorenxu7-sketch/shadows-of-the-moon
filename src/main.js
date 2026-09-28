@@ -9,9 +9,14 @@
 // so the view never slows during Slow-motion. Phase 5 switches the world
 // model from zones to the 15-chapter / 3-act structure (amended §50, §46):
 // game.currentChapter / currentAct derive from the player's X each step.
+// Phase 6 adds the enemy system (§27–§35): the Patroller roster, base AI,
+// player-enemy collision with stomp priority, and the run-state authorities
+// (defeatedEnemyIds §28, damageTaken §61, combo streak §60); the camera and
+// renderer run at the amended global ZOOM 1.25 (§7/§53).
 import './constants.js';
 import {
-  LOGICAL_W,
+  ZOOM,
+  VIEW_W,
   CAMERA_FACTOR_X,
   CAMERA_FACTOR_Y,
   CAMERA_LOOKAHEAD,
@@ -28,7 +33,7 @@ import { LEVEL_DATA, buildLevel } from './level.js';
 import { createRenderer } from './render.js';
 import { createLoop } from './loop.js';
 import { createPlayer, updatePlayer, playerSnapshot } from './entities/player.js';
-import './entities/enemy.js';
+import { createEnemies, updateEnemies, damageEnemy, enemiesSnapshot } from './entities/enemy.js';
 import './entities/projectile.js';
 import './entities/particle.js';
 import './entities/coin.js';
@@ -49,15 +54,23 @@ const game = {
   activeCheckpoint: null,   // no checkpoint until Phase 11 (§44 data authored now)
   lastDeath: null,          // set on the first death of the run (§43)
   camera: { x: 0, y: 0 },   // view center-top anchor, world px (§53, Phase 4)
+  // ---- Phase 6 run-state authorities ----
+  defeatedEnemyIds: new Set(),  // §28: kill score uniqueness; reset only on new run
+  damageTaken: 0,               // §61: actual HP points lost (rank input, Phase 13)
+  killStreak: 0,                // §60: consecutive kills (combo activation)
+  comboTimer: 0,                // §60: combo window countdown, seconds
 };
 
 // §53 camera follow — runs once per fixed sim step (dt = FIXED_DT, player
 // domain): framerate-independent exponential smoothing toward the target,
 // look-ahead in the facing direction (+20px above 300px/s), horizontal clamp
-// so the view never leaves the level. Vertical policy: comfort deadzone
-// [BAND_TOP, BAND_BOTTOM] in screen space while airborne; grounded play
-// re-anchors the chapter ground at CAMERA_REST_GROUND_SCREEN_Y — normal jumps
-// keep the view still, deep falls (pits) and tall climbs move it.
+// so the view never leaves the level. Phase 6: the camera runs at the
+// amended global ZOOM 1.25 (§7/§53) — the visible gameplay window is
+// VIEW_W x VIEW_H world units, screen-space bands convert through /ZOOM.
+// Vertical policy: comfort deadzone [BAND_TOP, BAND_BOTTOM] in screen space
+// while airborne; grounded play re-anchors the chapter ground at
+// CAMERA_REST_GROUND_SCREEN_Y — normal jumps keep the view still, deep
+// falls (pits) and tall climbs move it.
 // NOTE Phase 11: respawn/checkpoint flow should snap the camera to its target
 // instead of easing across the world.
 function updateCamera(dt) {
@@ -65,29 +78,30 @@ function updateCamera(dt) {
   const dir = player.facing === 'left' ? -1 : 1;
   let look = CAMERA_LOOKAHEAD;
   if (Math.abs(player.vx) > CAMERA_LOOKAHEAD_SPEED) look += CAMERA_LOOKAHEAD_FAST;
-  const targetX = player.x + player.w / 2 + look * dir - LOGICAL_W / 2;
+  const targetX = player.x + player.w / 2 + look * dir - VIEW_W / 2;
 
   let targetY;
   if (player.onGround) {
     const chapter = level.chapterAt(player.x);
-    targetY = chapter.groundY - CAMERA_REST_GROUND_SCREEN_Y;
+    targetY = chapter.groundY - CAMERA_REST_GROUND_SCREEN_Y / ZOOM;
   } else {
-    const screenY = player.y + player.h / 2 - c.y;   // player's screen-space y
-    if (screenY < CAMERA_BAND_TOP) targetY = player.y + player.h / 2 - CAMERA_BAND_TOP;
-    else if (screenY > CAMERA_BAND_BOTTOM) targetY = player.y + player.h / 2 - CAMERA_BAND_BOTTOM;
+    const screenY = (player.y + player.h / 2 - c.y) * ZOOM;   // §7 zoom space
+    if (screenY < CAMERA_BAND_TOP) targetY = player.y + player.h / 2 - CAMERA_BAND_TOP / ZOOM;
+    else if (screenY > CAMERA_BAND_BOTTOM) targetY = player.y + player.h / 2 - CAMERA_BAND_BOTTOM / ZOOM;
     else targetY = c.y;                               // inside the comfort band: hold
   }
 
   c.x += (targetX - c.x) * (1 - Math.exp(-CAMERA_FACTOR_X * dt));
   c.y += (targetY - c.y) * (1 - Math.exp(-CAMERA_FACTOR_Y * dt));
 
-  const maxX = level.worldWidth - LOGICAL_W;          // §53: never show beyond level
+  const maxX = level.worldWidth - VIEW_W;             // §53 amended: 0..LEVEL_W-1024
   if (c.x < 0) c.x = 0;
   else if (c.x > maxX) c.x = maxX;
 }
 
 const level = buildLevel(LEVEL_DATA);
 const player = createPlayer(level);   // a new run starts with Sara (§47)
+const enemies = createEnemies(level, game.defeatedEnemyIds);   // §28/§6
 const renderer = createRenderer(canvas);
 const input = createInput({
   game,
@@ -97,9 +111,11 @@ const loop = createLoop({
   game,
   update: (dt) => {
     // Player domain keeps FIXED_DT even during slow-motion (§10); the
-    // enemy domain (dt * factor) is consumed from Phase 6 onward.
+    // enemy domain consumes dt * slowMotionFactor inside updateEnemies
+    // (§10/§11 — applied exactly once there).
     const events = input.drainEvents();
     updatePlayer(game, player, input.heldState(), events, dt, level);
+    updateEnemies(game, enemies, player, dt, level);   // §27–§35 (Phase 6)
     updateCamera(dt);   // §10 “Camera gameplay update: 1.0” — never slowed
 
     // Chapter/act tracking (amended §46): currentChapter derives from the
@@ -110,7 +126,7 @@ const loop = createLoop({
     game.currentChapter = chapter.id;
     game.currentAct = chapter.act;
   },
-  render: () => renderer.render(game, level, player),
+  render: () => renderer.render(game, level, player, enemies),
   onStateChange: updateOverlays,
   onFrame: pushMetrics,
 });
@@ -203,6 +219,12 @@ function pushMetrics(frameInfo) {
   M.input = input.snapshot();
   M.player = playerSnapshot(player);
   M.camera = { x: game.camera.x, y: game.camera.y };
+  M.score = game.score;                       // §58 run score
+  M.kills = game.kills;                       // §59 kill count
+  M.damageTaken = game.damageTaken;           // §61
+  M.killStreak = game.killStreak;             // §60
+  M.defeatedEnemyIds = Array.from(game.defeatedEnemyIds);   // §28 authority
+  M.enemies = enemiesSnapshot(enemies);       // §74 entity instrumentation
   const chapter = level.chapterAt(player.x);
   M.chapter = { id: chapter.id, act: chapter.act, groundY: chapter.groundY };
   M.currentChapter = game.currentChapter;
@@ -227,12 +249,40 @@ if (window.__SOM_TEST__ === true) {
     input: null,
     player: null,
     camera: null,
+    score: 0,
+    kills: 0,
+    damageTaken: 0,
+    killStreak: 0,
+    defeatedEnemyIds: [],
+    enemies: [],
     chapter: null,
     currentChapter: null,
     currentAct: null,
     activeCheckpoint: null,
     lastDeath: null,
     renderTimestamps: [],
+  };
+  // §73 test-mode-only harness facilities: deterministic position control
+  // and a forced lethal damage event through the ORGANIC award path
+  // (§59). Production never sees this object — it is created exclusively
+  // under __SOM_TEST__.
+  window.__SOM_TEST_API__ = {
+    teleport(x, y, vy) {
+      if (player.dead) return;
+      player.x = x;
+      player.y = y;
+      player.prevY = y;
+      if (vy !== undefined) player.vy = vy;
+    },
+    forceKill(id) {
+      for (let i = 0; i < enemies.length; i += 1) {
+        if (enemies[i].id === id) {
+          damageEnemy(game, enemies[i], 999);
+          return true;
+        }
+      }
+      return false;
+    },
   };
 }
 
