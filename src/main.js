@@ -13,6 +13,13 @@
 // player-enemy collision with stomp priority, and the run-state authorities
 // (defeatedEnemyIds §28, damageTaken §61, combo streak §60); the camera and
 // renderer run at the amended global ZOOM 1.25 (§7/§53).
+// Phase 7 owns the ROSTER + ABILITY runtime (§15–§26, §50, §54, §57, §63):
+// per-character cooldowns and abilities (knife/dash, shockwave/slam,
+// magic/slow-motion/shield), character switching with the §20 HP-ratio
+// formula and §20.1 switch combos, the progressive unlock chain
+// (Sara → Raha at 1-3 → Aram at 1-5) with §20.2 non-blocking tutorials,
+// projectiles, particles, §50 gate transitions (barrier dispel, time-door
+// latch) through the active-solids rebuild, and the §54 screen-shake state.
 import './constants.js';
 import {
   ZOOM,
@@ -25,6 +32,10 @@ import {
   CAMERA_BAND_TOP,
   CAMERA_BAND_BOTTOM,
   CAMERA_REST_GROUND_SCREEN_Y,
+  CHARACTER_COLORS,
+  UNLOCK_CHAPTERS,
+  TUTORIAL_DURATION,
+  GATE_OPEN_RANGE,
 } from './constants.js';
 import { createInput } from './input.js';
 import './physics.js';
@@ -32,10 +43,10 @@ import './ai.js';
 import { LEVEL_DATA, buildLevel } from './level.js';
 import { createRenderer } from './render.js';
 import { createLoop } from './loop.js';
-import { createPlayer, updatePlayer, playerSnapshot } from './entities/player.js';
+import { createPlayer, updatePlayer, switchCharacter, playerSnapshot } from './entities/player.js';
 import { createEnemies, updateEnemies, damageEnemy, enemiesSnapshot } from './entities/enemy.js';
-import './entities/projectile.js';
-import './entities/particle.js';
+import { updateProjectiles, projectilesSnapshot } from './entities/projectile.js';
+import { updateParticles, spawnBurst, particlesSnapshot } from './entities/particle.js';
 import './entities/coin.js';
 
 const canvas = document.getElementById('game');
@@ -48,7 +59,8 @@ const game = {
   currentRunCoins: 0,
   currentChapter: '1-1',   // chapter id "A-C" derived from player X (§46)
   currentAct: 1,           // act 1..3 (zones renamed acts, amended §50)
-  slowMoActive: false,
+  slowMoActive: false,     // §25.1: enemy systems run at 0.35 while active
+  slowMoT: 0,              // §25.1 remaining slow-motion seconds (player domain)
   paused: false,
   pauseReasons: new Set(),
   activeCheckpoint: null,   // no checkpoint until Phase 11 (§44 data authored now)
@@ -59,6 +71,21 @@ const game = {
   damageTaken: 0,               // §61: actual HP points lost (rank input, Phase 13)
   killStreak: 0,                // §60: consecutive kills (combo activation)
   comboTimer: 0,                // §60: combo window countdown, seconds
+  // ---- Phase 7 roster/ability run state (§71 global state rule) ----
+  // §20 progressive unlock (session view; §63 save-v2 persistence is Phase 9):
+  // Sara starts unlocked; Raha joins at chapter 1-3, Aram at chapter 1-5.
+  unlockedCharacters: ['sara'],
+  heartCount: 0,                // §19 global heart containers (authored Phase 13)
+  projectiles: [],              // §21 knives + magic shots (player domain)
+  particles: [],                // §57/§78 capped feedback particles
+  rings: [],                    // §24 shockwave/slam impact rings (presentation)
+  brokenPlatformIds: new Set(), // §24/§50 broken breakables
+  solidsDirty: false,           // rebuild the active collision view when set
+  shake: null,                  // §54 {mag, t, T} while a shake is live
+  lastAbilityUse: null,         // §20.1 switch-combo pairing stamp
+  comboBoost: null,             // §20.1 armed incoming-ability modifier
+  lastCombo: null,              // §20.1 consumed combo record (metrics)
+  tutorial: null,               // §20.2 {key, text, until} non-blocking hint
 };
 
 // §53 camera follow — runs once per fixed sim step (dt = FIXED_DT, player
@@ -107,6 +134,57 @@ const input = createInput({
   game,
   onManualPause: () => loop.enterPause('manual'),      // §8.1 manual pause
 });
+
+// §20/§20.2 progressive unlock chain, resolved by chapter ORDER (entering
+// the unlock chapter or any later one unlocks the character — idempotent,
+// and re-entering an earlier chapter can never re-lock). The unlock burst
+// (§15) + non-blocking tutorial (§20.2) fire exactly once per character.
+const CHAPTER_INDEX = new Map();
+for (let i = 0; i < level.chapters.length; i += 1) CHAPTER_INDEX.set(level.chapters[i].id, i);
+const UNLOCK_ORDER = [['raha', UNLOCK_CHAPTERS.raha], ['aram', UNLOCK_CHAPTERS.aram]];
+const TUTORIAL_TEXT = {
+  sara: 'A / D move · Space jump (twice for double jump) · K dash',
+  raha: 'RAHA — J shockwave · hold K airborne to slam',
+  aram: 'ARAM — J magic · tap K slow-motion · hold K shield',
+};
+function showTutorial(key) {
+  game.tutorial = { key, text: TUTORIAL_TEXT[key], until: game.gameTime + TUTORIAL_DURATION };
+}
+function unlockCharacter(key) {
+  if (game.unlockedCharacters.indexOf(key) !== -1) return;
+  game.unlockedCharacters.push(key);
+  spawnBurst(game, player.x + player.w / 2, player.y + player.h / 2,
+             CHARACTER_COLORS[key], 16);          // §15 unlock burst
+  showTutorial(key);                             // §20.2 non-blocking hint
+}
+function checkUnlocks() {
+  const here = CHAPTER_INDEX.get(game.currentChapter);
+  if (here == null) return;
+  for (let i = 0; i < UNLOCK_ORDER.length; i += 1) {
+    const key = UNLOCK_ORDER[i][0];
+    const at = CHAPTER_INDEX.get(UNLOCK_ORDER[i][1]);
+    if (at != null && here >= at) unlockCharacter(key);
+  }
+}
+
+// §50 time-locked doors: open ONLY while Aram's slow-motion is active and
+// the player is within GATE_OPEN_RANGE of the door (then latched open — a
+// re-closing door could clip the player, so an opened door never re-locks).
+function checkTimeDoors() {
+  if (!game.slowMoActive) return;
+  for (let i = 0; i < level.gates.length; i += 1) {
+    const g = level.gates[i];
+    if (g.kind !== 'timeDoor' || g.state !== 'closed') continue;
+    const dx = (player.x + player.w / 2) - (g.x + g.w / 2);
+    const dy = (player.y + player.h / 2) - (g.y + g.h / 2);
+    if (Math.abs(dx) <= GATE_OPEN_RANGE && Math.abs(dy) <= GATE_OPEN_RANGE) {
+      g.state = 'open';
+      game.solidsDirty = true;
+      spawnBurst(game, g.x + g.w / 2, g.y + g.h / 2, '#c77dff', 12);
+    }
+  }
+}
+
 const loop = createLoop({
   game,
   update: (dt) => {
@@ -114,17 +192,48 @@ const loop = createLoop({
     // enemy domain consumes dt * slowMotionFactor inside updateEnemies
     // (§10/§11 — applied exactly once there).
     const events = input.drainEvents();
-    updatePlayer(game, player, input.heldState(), events, dt, level);
+    // §20 character switching resolves BEFORE the step: keys 1/2/3 and the
+    // touch selectors emit `select` edges; switchCharacter enforces the
+    // unlock gate, blocked-while rules, and the HP-ratio formula.
+    for (let i = 0; i < events.length; i += 1) {
+      if (events[i].type === 'select') switchCharacter(game, player, events[i].select);
+    }
+    updatePlayer(game, player, input.heldState(), events, dt, level, enemies);
     updateEnemies(game, enemies, player, dt, level);   // §27–§35 (Phase 6)
-    updateCamera(dt);   // §10 “Camera gameplay update: 1.0” — never slowed
+    updateProjectiles(game, game.projectiles, enemies, level, dt);   // §21 (Phase 7)
+    updateParticles(game, dt);                        // §57 FX (player domain)
 
     // Chapter/act tracking (amended §46): currentChapter derives from the
     // player's X within the authored chapter bounds. Chapter-entry side
     // effects (inscription, completion flow, checkpoint auto-activation,
-    // save v2 write) arrive with Phases 9/11 — Phase 5 only tracks.
+    // save v2 write) arrive with Phases 9/11 — Phase 7 adds only the §20
+    // unlock chain and the §50 time-door proximity rule.
     const chapter = level.chapterAt(player.x);
     game.currentChapter = chapter.id;
     game.currentAct = chapter.act;
+    checkUnlocks();
+    checkTimeDoors();
+
+    // §25.1 slow-motion expiry — the time-domain effect is GLOBAL and runs
+    // on the player-domain clock (it outlives switching away from Aram).
+    if (game.slowMoActive) {
+      game.slowMoT -= dt;
+      if (game.slowMoT <= 0) { game.slowMoActive = false; game.slowMoT = 0; }
+    }
+    // §54 screen shake: time-bounded decay on the player-domain clock.
+    if (game.shake) {
+      game.shake.t -= dt;
+      if (game.shake.t <= 0) game.shake = null;
+    }
+    // §20.2 tutorial expiry (non-blocking: presentation state only).
+    if (game.tutorial && game.gameTime > game.tutorial.until) game.tutorial = null;
+    // §24/§50 active-solids rebuild (broken breakables, dispelled/opened gates).
+    if (game.solidsDirty) {
+      level.rebuildSolids(game.brokenPlatformIds);
+      game.solidsDirty = false;
+    }
+
+    updateCamera(dt);   // §10 “Camera gameplay update: 1.0” — never slowed
   },
   render: () => renderer.render(game, level, player, enemies),
   onStateChange: updateOverlays,
@@ -225,6 +334,23 @@ function pushMetrics(frameInfo) {
   M.killStreak = game.killStreak;             // §60
   M.defeatedEnemyIds = Array.from(game.defeatedEnemyIds);   // §28 authority
   M.enemies = enemiesSnapshot(enemies);       // §74 entity instrumentation
+  // ---- Phase 7 instrumentation (§74) ----
+  M.unlockedCharacters = game.unlockedCharacters.slice();      // §20 chain
+  M.slowMoActive = game.slowMoActive;          // §25.1 time domain state
+  M.slowMoT = game.slowMoT;
+  M.projectiles = projectilesSnapshot(game.projectiles);      // §21
+  M.particles = particlesSnapshot(game);        // §57/§78 FX bounds
+  M.gates = level.gates.map((g) => ({ id: g.id, kind: g.kind, state: g.state }));
+  M.comboBoost = game.comboBoost
+    ? { ability: game.comboBoost.ability, from: game.comboBoost.from,
+        to: game.comboBoost.to, until: game.comboBoost.until }
+    : null;                                     // §20.1 armed modifier
+  M.lastCombo = game.lastCombo
+    ? { ability: game.lastCombo.ability, from: game.lastCombo.from,
+        to: game.lastCombo.to, at: game.lastCombo.at }
+    : null;                                     // §20.1 consumed record
+  M.tutorial = game.tutorial ? { key: game.tutorial.key } : null;
+  M.shake = game.shake ? { mag: game.shake.mag, t: game.shake.t } : null;
   const chapter = level.chapterAt(player.x);
   M.chapter = { id: chapter.id, act: chapter.act, groundY: chapter.groundY };
   M.currentChapter = game.currentChapter;
@@ -255,6 +381,16 @@ if (window.__SOM_TEST__ === true) {
     killStreak: 0,
     defeatedEnemyIds: [],
     enemies: [],
+    unlockedCharacters: [],
+    slowMoActive: false,
+    slowMoT: 0,
+    projectiles: [],
+    particles: null,
+    gates: [],
+    comboBoost: null,
+    lastCombo: null,
+    tutorial: null,
+    shake: null,
     chapter: null,
     currentChapter: null,
     currentAct: null,
@@ -283,11 +419,22 @@ if (window.__SOM_TEST__ === true) {
       }
       return false;
     },
+    // §73 harness facility for §79.3/§79.4/§79.5: force a story unlock
+    // (§20). Chapter 1-5 lies beyond the interim dev end wall until Phase
+    // 12 authors it, so the organic Aram unlock is unreachable in the
+    // authored world — tests force it through the SAME unlock path the
+    // chapter-entry rule uses (burst + tutorial included). Test mode only.
+    forceUnlock(key) {
+      if (!TUTORIAL_TEXT[key]) return false;
+      unlockCharacter(key);
+      return game.unlockedCharacters.indexOf(key) !== -1;
+    },
   };
 }
 
 // ---- boot -----------------------------------------------------------------
 onOrientationChange();   // honor an initially-portrait viewport (§8.2)
 updateOverlays();
+showTutorial('sara');    // §20.2: game-start hints (non-blocking, 3-5 s)
 loop.start();
 window.__SOM_BOOTED__ = true;   // load smoke hook (production-independent)

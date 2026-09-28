@@ -36,8 +36,10 @@ export function overlapsY(a, p) {
 
 // One deterministic step. Mutates entity {x, y, w, h, vx, vy, onGround}.
 // `ay` is this step's total vertical acceleration (gravity + any active
-// variable-jump cut); MAX_FALL clamps the post-acceleration velocity.
-export function moveAndCollide(entity, platforms, dt, ay) {
+// variable-jump cut); `maxFall` clamps the post-acceleration velocity
+// (§36 MAX_FALL by default — Raha's §24 airborne slam passes Infinity to
+// remove the fall-speed cap during the fast-fall descent).
+export function moveAndCollide(entity, platforms, dt, ay, maxFall = MAX_FALL) {
   // ---- Pass 1: horizontal -------------------------------------------------
   entity.x += entity.vx * dt;
   let blockedX = false;
@@ -62,7 +64,7 @@ export function moveAndCollide(entity, platforms, dt, ay) {
   const prevY = entity.y;
   const vyPrev = entity.vy;
   entity.vy += ay * dt;
-  if (entity.vy > MAX_FALL) entity.vy = MAX_FALL;
+  if (entity.vy > maxFall) entity.vy = maxFall;
   entity.y += ((vyPrev + entity.vy) / 2) * dt;
   entity.onGround = false;
   for (let i = 0; i < platforms.length; i += 1) {

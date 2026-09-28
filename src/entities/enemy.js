@@ -23,6 +23,7 @@ import {
   COMBO_WINDOW,
   COMBO_MIN_STREAK,
   SLOWMO_FACTOR,
+  DASH_DAMAGE,
 } from '../constants.js';
 import { patrolStep } from '../ai.js';
 
@@ -129,13 +130,27 @@ function damagePlayer(game, player, dmg) {
 
 // §35 player-enemy collision for one enemy. Stomp takes priority over side
 // contact when its geometric conditions are valid; otherwise side contact
-// can damage. Player damage is subject to i-frames (§22); Sara's dash
-// pass-through (§23) lands with the ability in Phase 7.
+// can damage. Player damage is subject to i-frames (§22) and Aram's Shield
+// (§25.2 — a blocked hit never reduces HP, never counts damageTaken, never
+// resets the Combo). Sara's dash (§23) passes THROUGH enemies: contact
+// damage is ignored for its duration and each enemy intersected takes
+// DASH_DAMAGE exactly once per dash (player.dashHits is the once-guard).
 function resolvePlayerContact(game, enemy, player) {
   if (player.dead) return;
   const overlapX = player.x < enemy.x + enemy.w && player.x + player.w > enemy.x;
   const overlapY = player.y < enemy.y + enemy.h && player.y + player.h > enemy.y;
   if (!overlapX || !overlapY) return;
+
+  // §23 dash pass-through: the ONLY defensive dash property is this short
+  // intangibility window — no contact damage, no stomp resolution; the
+  // dash-through strike replaces contact handling entirely.
+  if (player.dashT > 0) {
+    if (player.dashHits.indexOf(enemy.id) === -1) {
+      player.dashHits.push(enemy.id);
+      damageEnemy(game, enemy, DASH_DAMAGE, false);
+    }
+    return;
+  }
 
   // §40 stomp: player.vy > 200 AND the feet crossed the enemy top surface
   // during this step (previous bottom above the top, current bottom below).
@@ -152,8 +167,8 @@ function resolvePlayerContact(game, enemy, player) {
     return;
   }
 
-  // Side contact damage (§21) — blocked by i-frames (§22).
-  if (player.invuln > 0) return;
+  // Side contact damage (§21) — blocked by i-frames (§22) and Shield (§25.2).
+  if (player.invuln > 0 || player.shieldT > 0) return;
   damagePlayer(game, player, enemy.contactDamage);
 }
 
@@ -187,6 +202,10 @@ export function enemiesSnapshot(enemies) {
     out[i] = {
       id: e.id, type: e.type, x: e.x, y: e.y, w: e.w, h: e.h,
       hp: e.hp, facing: e.facing, state: e.state, dead: e.dead,
+      // §74 enemy-domain timers — the §79.3 slow-motion instrumentation
+      // samples these to prove the enemy domain consumes dt * 0.35.
+      hurtT: e.hurtT, staggerT: e.staggerT, walkTime: e.walkTime,
+      vx: e.vx,
     };
   }
   return out;

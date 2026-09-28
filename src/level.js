@@ -122,7 +122,10 @@ export const LEVEL_DATA = Object.freeze({
     // ---- Chapter 1-2 "The Deepening Wood" ---------------------------------
     // Two guarded gaps (180px, 220px with a mid-gap stepping stone), an
     // elevated route over the third stretch, and a mid-chapter checkpoint
-    // (§44 designer discretion) after the second gap.
+    // (§44 designer discretion) after the second gap. Phase 7 adds the
+    // first §50 environmental gate: a MAGIC BARRIER vault pocket on the
+    // elevated route (optional loot — only Aram's magic shot dispels it;
+    // the ground route below stays open, so no route ever soft-locks).
     Object.freeze({
       id: '1-2', act: 1, name: 'The Deepening Wood',
       length: 3600, startX: 3400, authored: true, groundY: GROUND_Y,
@@ -135,6 +138,12 @@ export const LEVEL_DATA = Object.freeze({
         Object.freeze({ x: 5960, y: 560, w: 80, h: 24 }),           // mid-gap stepping stone
         Object.freeze({ x: 6400, y: 520, w: 140, h: 24 }),          // elevated route
         Object.freeze({ x: 6700, y: 420, w: 140, h: 24 }),
+        Object.freeze({ x: 6840, y: 420, w: 120, h: 24 }),          // magic vault floor
+      ]),
+      // §50 environmental gates (optional authored features).
+      gates: Object.freeze([
+        Object.freeze({ id: 'c1_2_gate_magic_001', kind: 'magicBarrier',
+                        x: 6810, y: 320, w: 20, h: 100 }),
       ]),
       enemies: Object.freeze([
         Object.freeze({ id: 'c1_2_enemy_001', type: 'patroller', x: 4000, y: 594,
@@ -150,6 +159,7 @@ export const LEVEL_DATA = Object.freeze({
         Object.freeze({ id: 'c1_2_coin_004', kind: 'coin', x: 5550, y: 610 }),
         Object.freeze({ id: 'c1_2_coin_005', kind: 'coin', x: 6350, y: 610 }),
         Object.freeze({ id: 'c1_2_coin_006', kind: 'rareCoin', x: 6000, y: 520 }),
+        Object.freeze({ id: 'c1_2_coin_007', kind: 'rareCoin', x: 6900, y: 380 }),   // magic vault
         Object.freeze({ id: 'c1_2_crystal_001', kind: 'crystal', x: 4060, y: 500 }),
         Object.freeze({ id: 'c1_2_health_001', kind: 'health', x: 6850, y: 610 }),
       ]),
@@ -175,9 +185,12 @@ export const LEVEL_DATA = Object.freeze({
     }),
 
     // ---- Chapter 1-3 "The Edge of the Forest" ------------------------------
-    // A guarded gap, the first breakable platform (optional route piece,
-    // §51 breakables data), a three-step climb tower, and the act's last
-    // mini-boss plateau before the road.
+    // A guarded gap, the first breakable platform (the §50 stone-wall gate
+    // — only Raha's slam breaks it; optional route piece), a three-step
+    // climb tower, and the act's last mini-boss plateau before the road.
+    // Phase 7 adds the §50 TIME-LOCKED DOOR: the tower-top pocket holding
+    // the crystal opens only while Aram's slow-motion is active nearby
+    // (optional loot — the ground route stays open; no soft-lock).
     Object.freeze({
       id: '1-3', act: 1, name: 'The Edge of the Forest',
       length: 3400, startX: 7000, authored: true, groundY: GROUND_Y,
@@ -188,8 +201,14 @@ export const LEVEL_DATA = Object.freeze({
         Object.freeze({ x: 8600, y: 540, w: 110, h: 24 }),          // climb 1
         Object.freeze({ x: 8820, y: 440, w: 110, h: 24 }),          // climb 2
         Object.freeze({ x: 9040, y: 340, w: 110, h: 24 }),          // climb 3 (tower top)
+        Object.freeze({ x: 9150, y: 340, w: 110, h: 24 }),          // time-lock pocket floor
         Object.freeze({ x: 8460, y: 500, w: 100, h: 20, breakable: true,
                         id: 'c1_3_brk_001' }),                       // first breakable
+      ]),
+      // §50 environmental gates (optional authored features).
+      gates: Object.freeze([
+        Object.freeze({ id: 'c1_3_gate_time_001', kind: 'timeDoor',
+                        x: 9155, y: 240, w: 24, h: 100 }),
       ]),
       enemies: Object.freeze([
         Object.freeze({ id: 'c1_3_enemy_001', type: 'patroller', x: 7500, y: 594,
@@ -242,8 +261,13 @@ export const LEVEL_DATA = Object.freeze({
 
 // Runtime level view. Chapter bounds are DERIVED here (contiguous,
 // non-overlapping — §46); worldWidth is the exact sum of authored lengths.
-// Mutable world state (broken breakables, enemy/collectible registration)
-// arrives with the phases that consume it; buildLevel stays a pure function.
+// buildLevel stays a pure function of `data` EXCEPT for the active solids
+// view: `level.platforms` is the MUTABLE collision view (static platforms
+// minus broken breakables, plus solid §50 gates), rebuilt on demand via
+// level.rebuildSolids(brokenIds) whenever world state marks it dirty;
+// `level.allPlatforms` is the immutable static list. Ch.1-2 and 1-3 author
+// the example §50 gates — a magic-barrier vault and a time-locked door
+// pocket (§50: optional features; routes never soft-lock).
 export function buildLevel(data) {
   const chapters = data.chapters;
   let worldWidth = 0;
@@ -263,11 +287,30 @@ export function buildLevel(data) {
 
   // Flatten the collision world from AUTHORED chapters only. Unauthored
   // chapters contribute no geometry until Phase 12 authors them.
-  const platforms = [];
+  const allPlatforms = [];
   for (let i = 0; i < records.length; i += 1) {
     const ch = records[i];
     if (!ch.authored) continue;
-    for (let j = 0; j < ch.platforms.length; j += 1) platforms.push(ch.platforms[j]);
+    for (let j = 0; j < ch.platforms.length; j += 1) allPlatforms.push(ch.platforms[j]);
+  }
+
+  // §50 environmental gates from authored chapters: mutable runtime copies
+  // (state transitions active→dispelled / closed→open), each with a stable
+  // chapter-scoped id. Initial state: magic barriers ACTIVE (solid until
+  // dispelled by an Aram magic shot), time doors CLOSED (solid until opened
+  // by Aram's slow-motion within GATE_OPEN_RANGE — then latched open, so a
+  // closing door can never clip or trap the player).
+  const gates = [];
+  for (let i = 0; i < records.length; i += 1) {
+    const ch = records[i];
+    if (!ch.authored || !ch.gates) continue;
+    for (let j = 0; j < ch.gates.length; j += 1) {
+      const g = ch.gates[j];
+      gates.push({
+        id: g.id, kind: g.kind, x: g.x, y: g.y, w: g.w, h: g.h,
+        state: g.kind === 'magicBarrier' ? 'active' : 'closed',
+      });
+    }
   }
 
   // INTERIM end-of-authored-content wall (Phases 5-11 only): a cliff-face
@@ -280,15 +323,38 @@ export function buildLevel(data) {
     for (let i = 0; i < records.length; i += 1) {
       if (records[i].authored) boundary = records[i].startX + records[i].length;
     }
-    platforms.push(Object.freeze({
+    allPlatforms.push(Object.freeze({
       x: boundary, y: 300, w: 60, h: 356, devEndWall: true,
     }));
   }
 
+  // The ACTIVE collision solids (§39 world view): static platforms minus
+  // broken breakables, plus gates that currently block (active barriers,
+  // closed time doors). Mutated IN PLACE by rebuildSolids — physics, AI,
+  // and projectiles all read `level.platforms` per step and stay correct
+  // across break/dispel/open transitions.
+  const platforms = [];
+  function rebuildSolids(brokenIds) {
+    platforms.length = 0;
+    for (let i = 0; i < allPlatforms.length; i += 1) {
+      const p = allPlatforms[i];
+      if (p.breakable && p.id && brokenIds.has(p.id)) continue;
+      platforms.push(p);
+    }
+    for (let i = 0; i < gates.length; i += 1) {
+      const g = gates[i];
+      if (g.state === 'active' || g.state === 'closed') platforms.push(g);
+    }
+  }
+  rebuildSolids(new Set());                      // initial view: nothing broken
+
   return {
     worldWidth,
     chapters: records,
-    platforms,
+    allPlatforms,                               // static geometry (render source)
+    platforms,                                  // ACTIVE collision solids view
+    gates,
+    rebuildSolids,
     spawn: records[0].checkpoint.respawn,        // new run: chapter 1-1 start (§47)
     // Active chapter by player x (§46: within authored chapter bounds,
     // clamped at both ends). endX is derived (startX + length) — chapter

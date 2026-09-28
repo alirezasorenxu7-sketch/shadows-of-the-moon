@@ -776,6 +776,374 @@ def test_enemy_score_uniqueness(browser):
         ctx.close()
 
 
+# ------------------------------------------------------------------ phase 7 tests
+
+# In-page slow-motion domain sampler (§79.3): records per rendered frame the
+# enemy-domain clock (walkTime advances by simDt every step regardless of
+# patrol pauses/turns — the clean 0.35 factor probe), enemy position, the
+# enemy hurt timer, player vx, and the Aram attack cooldown.
+_SM_SAMPLER = """() => {
+  window.__somSM = { rows: [] };
+  const tick = () => {
+    const M = window.__SOM_METRICS__;
+    if (M && M.player && M.enemies) {
+      const e1 = M.enemies.find((e) => e.id === 'c1_1_enemy_001');
+      window.__somSM.rows.push({
+        t: M.gameTime, slow: M.slowMoActive, slowT: M.slowMoT,
+        pvx: M.player.vx, cdA: M.player.cooldowns.aram.attack,
+        ex: e1 ? e1.x : null, walk: e1 ? e1.walkTime : null,
+        hurtT: e1 ? e1.hurtT : null,
+      });
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}"""
+
+
+def _sm_rows(page):
+    return page.evaluate("() => window.__somSM.rows")
+
+
+def _slope(rows, key, t0, t1):
+    """Linear slope of `key` vs t over [t0, t1] (None if insufficient)."""
+    pts = [(r["t"], r[key]) for r in rows
+           if t0 <= r["t"] <= t1 and r[key] is not None]
+    if len(pts) < 4:
+        return None
+    (ta, va), (tb, vb) = pts[0], pts[-1]
+    if tb - ta < 0.05:
+        return None
+    return (vb - va) / (tb - ta)
+
+
+def test_aram_slow_motion(browser):
+    """SPEC §79.3: Aram slow-motion — enemy systems at 0.35 (movement AND AI
+    timers), player at 1.0, duration 3.0s, player ability cooldowns NOT
+    slowed. Measured from the actual simulation state via a per-frame
+    sampler; walkTime is the §31 enemy-domain AI/walk-cycle clock (advances
+    by simDt each step — pause/turn-immune), the patrol path proves slowed
+    MOVEMENT, and the magic-shot kill proves §21 damage through the organic
+    award path."""
+    name = "test: Aram slow-motion time domains (§79.3)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        if not page.evaluate("() => window.__SOM_TEST_API__.forceUnlock('aram')"):
+            return Result(name, "FAIL", "forceUnlock('aram') refused")
+        page.keyboard.press("3")
+        page.wait_for_timeout(150)
+        m = _metrics(page)
+        if m["player"]["character"] != "aram":
+            return Result(name, "FAIL", "switch to Aram did not land (§20)")
+        # Stand near the first patroller's patrol stretch (1450..1850). The
+        # player never moves before the shot, so facing stays 'right'.
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(1650, 594, 0)")
+        page.wait_for_timeout(120)
+        page.evaluate(_SM_SAMPLER)
+
+        # Phase A: ~0.9s at the normal domain rate.
+        page.wait_for_timeout(900)
+        rows_a = _sm_rows(page)
+        tA0 = rows_a[-1]["t"]
+        score_before = _metrics(page)["score"]
+
+        # K TAP (< 300 ms) -> slow-motion (§25).
+        page.keyboard.down("K")
+        page.wait_for_timeout(70)
+        page.keyboard.up("K")
+        page.wait_for_timeout(120)
+        m = _metrics(page)
+        if not m["slowMoActive"]:
+            return Result(name, "FAIL", "K tap did not activate slow-motion (§25.1)")
+        t_on = m["gameTime"]
+
+        # Phase B: ~0.9s inside the slow-motion window.
+        page.wait_for_timeout(900)
+        rows_b = _sm_rows(page)
+        tB1 = rows_b[-1]["t"]
+
+        # Magic shot (§25.3) into the patroller from its left: the ATTACK
+        # COOLDOWN decays at the player rate while the world is slowed, and
+        # the 1-HP patroller dies through the organic award path (+100).
+        m = _metrics(page)
+        e1 = [e for e in m["enemies"] if e["id"] == "c1_1_enemy_001"][0]
+        page.evaluate(f"() => window.__SOM_TEST_API__.teleport({e1['x'] - 70}, 594, 0)")
+        page.wait_for_timeout(100)
+        t_shot = _metrics(page)["gameTime"]
+        page.keyboard.press("J")
+        page.wait_for_timeout(550)          # flight + kill award
+
+        # Player at 1.0: hold D and sample vx inside the same slow-mo.
+        page.keyboard.down("D")
+        page.wait_for_timeout(400)
+        page.keyboard.up("D")
+        m = _metrics(page)
+        if not m["slowMoActive"]:
+            return Result(name, "FAIL", "slow-motion expired before the player-rate "
+                                       "sample (duration < 3.0s)")
+        t_off_sample = m["gameTime"]
+
+        # Wait out the remainder of the 3.0s duration + margin.
+        page.wait_for_timeout(int(max(0.0, 3.0 - (t_off_sample - t_on)) * 1000) + 700)
+        rows = _sm_rows(page)
+
+        # ---- analysis -------------------------------------------------------
+        problems = []
+        slope_walk_pre = _slope(rows, "walk", rows[0]["t"], tA0)
+        slope_walk_slow = _slope(rows, "walk", t_on + 0.1, tB1)
+        cd_pts = [(r["t"], r["cdA"]) for r in rows
+                  if r["t"] >= t_shot and 0 < r["cdA"] < 0.36]
+        slope_cd = None
+        if len(cd_pts) >= 4 and cd_pts[-1][0] - cd_pts[0][0] > 0.05:
+            (ta, va), (tb, vb) = cd_pts[0], cd_pts[-1]
+            slope_cd = (vb - va) / (tb - ta)
+        pvx_pts = [abs(r["pvx"]) for r in rows
+                   if t_off_sample - 0.4 <= r["t"] <= t_off_sample and r["pvx"] is not None]
+        mean_pvx = sum(pvx_pts) / len(pvx_pts) if pvx_pts else None
+        slow_rows = [r for r in rows if r["slow"]]
+        duration = None
+        if slow_rows:
+            after = [r for r in rows if r["t"] > slow_rows[-1]["t"] and not r["slow"]]
+            t_end = after[0]["t"] if after else slow_rows[-1]["t"]
+            duration = t_end - slow_rows[0]["t"]
+        # Slowed MOVEMENT: patrol path length per sim-second inside the
+        # slow-mo window vs the pre window (loose bounds — pauses/turns).
+        path_a = sum(abs(b - a) for a, b in zip(
+            [r["ex"] for r in rows if r["t"] <= tA0 and r["ex"] is not None],
+            [r["ex"] for r in rows if r["t"] <= tA0 and r["ex"] is not None][1:]))
+        path_b = sum(abs(b - a) for a, b in zip(
+            [r["ex"] for r in rows if t_on + 0.1 <= r["t"] <= tB1 and r["ex"] is not None],
+            [r["ex"] for r in rows if t_on + 0.1 <= r["t"] <= tB1 and r["ex"] is not None][1:]))
+        score_after = _metrics(page)["score"]
+
+        if slope_walk_pre is None or not (0.90 <= slope_walk_pre <= 1.10):
+            problems.append(f"pre slow-mo enemy AI clock rate {slope_walk_pre} != 1.0")
+        if slope_walk_slow is None or not (0.28 <= slope_walk_slow <= 0.44):
+            problems.append(f"slow-mo enemy AI clock rate {slope_walk_slow} != 0.35 (§79.3)")
+        if path_a <= 0 or path_b <= 0 or not (0.15 <= path_b / path_a <= 0.60):
+            problems.append(f"enemy movement ratio {path_b}/{path_a} not slowed (§79.3)")
+        if mean_pvx is None or not (330 <= mean_pvx <= 390):
+            problems.append(f"player speed during slow-mo {mean_pvx} != full rate (§79.3)")
+        if slope_cd is None or not (-1.25 <= slope_cd <= -0.80):
+            problems.append(f"player cooldown decay {slope_cd} is slowed (§79.3)")
+        if duration is None or not (2.6 <= duration <= 3.4):
+            problems.append(f"slow-motion duration {duration} != 3.0s (§79.3)")
+        if score_after != score_before + 100:
+            problems.append(f"magic-shot kill award {score_after - score_before} != +100 (§21/§59)")
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+        return Result(name, "PASS",
+                      f"enemy AI clock {slope_walk_pre:.2f} -> {slope_walk_slow:.2f} (0.35); "
+                      f"movement ratio {path_b / path_a:.2f}; player {mean_pvx:.0f}px/s; "
+                      f"cooldown decay {slope_cd:.2f}/s; duration {duration:.2f}s; kill +100")
+    finally:
+        ctx.close()
+
+
+def test_character_switching(browser):
+    """SPEC §79.4: character switching — HP ratio via the §20 round formula,
+    unlock gating (locked slots never selectable), the 0.35s i-frame floor,
+    and the blocked-while rules (switch refused during Sara's dash)."""
+    name = "test: character switching HP formula (§79.4)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        m = _metrics(page)
+        p = m["player"]
+        if p["character"] != "sara" or p["hp"] != 5 or p["maxHp"] != 5:
+            return Result(name, "FAIL", f"boot state wrong: {p['character']} {p['hp']}/{p['maxHp']}")
+        problems = []
+
+        # 1) Locked gating: Raha is NOT selectable at chapter 1-1 (§20).
+        page.keyboard.press("2")
+        page.wait_for_timeout(120)
+        m = _metrics(page)
+        if m["player"]["character"] != "sara":
+            problems.append("switched to LOCKED Raha at chapter 1-1 (§20)")
+        if m["unlockedCharacters"] != ["sara"]:
+            problems.append(f"unlockedCharacters at boot = {m['unlockedCharacters']}")
+
+        # 2) Two organic contact hits -> Sara hp 3 / 5 (§21/§22).
+        for _ in range(2):
+            em = _metrics(page)
+            e1 = [e for e in em["enemies"] if e["id"] == "c1_1_enemy_001"][0]
+            page.evaluate(f"() => window.__SOM_TEST_API__.teleport({e1['x']}, 594, 0)")
+            page.wait_for_timeout(140)
+            page.evaluate("() => window.__SOM_TEST_API__.teleport(300, 594, 0)")   # safe spot
+            page.wait_for_timeout(1100)            # i-frames run out
+        m = _metrics(page)
+        if m["player"]["hp"] != 3 or m["damageTaken"] != 2:
+            problems.append(f"setup damage wrong: hp={m['player']['hp']} "
+                            f"damageTaken={m['damageTaken']} (expected 3 / 2)")
+
+        # 3) Organic unlock: enter chapter 1-3 -> Raha joins (§20 story event).
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(7100, 594, 0)")
+        page.wait_for_timeout(200)
+        m = _metrics(page)
+        if m["currentChapter"] != "1-3":
+            problems.append(f"teleport did not reach chapter 1-3 ({m['currentChapter']})")
+        if "raha" not in m["unlockedCharacters"]:
+            problems.append(f"Raha not unlocked at 1-3: {m['unlockedCharacters']}")
+        if m["tutorial"] is None or m["tutorial"]["key"] != "raha":
+            problems.append(f"Raha unlock tutorial missing: {m['tutorial']} (§20.2)")
+
+        # 4) Sara 3/5 -> Raha: round(8 * 3/5) = round(4.8) = 5, i-frame floor.
+        page.keyboard.press("2")
+        page.wait_for_timeout(60)
+        m = _metrics(page)
+        p = m["player"]
+        if p["character"] != "raha":
+            problems.append("switch to Raha refused after unlock (§20)")
+        elif p["hp"] != 5 or p["maxHp"] != 8:
+            problems.append(f"Sara->Raha HP formula: {p['hp']}/{p['maxHp']} (expected 5/8)")
+        if p["invuln"] < 0.25:
+            problems.append(f"switch i-frame floor {p['invuln']} < 0.35 (§20)")
+
+        # 5) Raha 5/8 -> Sara: round(5 * 5/8) = round(3.125) = 3.
+        page.keyboard.press("1")
+        page.wait_for_timeout(80)
+        m = _metrics(page)
+        p = m["player"]
+        if p["character"] != "sara":
+            problems.append("switch back to Sara refused (§20)")
+        elif p["hp"] != 3 or p["maxHp"] != 5:
+            problems.append(f"Raha->Sara HP formula: {p['hp']}/{p['maxHp']} (expected 3/5)")
+
+        # 6) Blocked while Sara's dash is active (§20).
+        page.keyboard.down("K")
+        page.wait_for_timeout(40)
+        page.keyboard.press("2")                   # inside the 0.22s dash
+        page.keyboard.up("K")
+        page.wait_for_timeout(40)
+        m = _metrics(page)
+        if m["player"]["character"] != "sara" or m["player"]["dashT"] <= 0:
+            problems.append("switch during active dash was not blocked (§20)")
+        page.wait_for_timeout(400)                 # dash long over
+        page.keyboard.press("2")
+        page.wait_for_timeout(80)
+        m = _metrics(page)
+        if m["player"]["character"] != "raha":
+            problems.append("switch to Raha refused AFTER the dash ended (§20)")
+
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+        return Result(name, "PASS",
+                      "locked slot refused; 3/5 -> round(8*3/5)=5/8 -> round(5*5/8)=3/5; "
+                      "i-frame floor 0.35; switch blocked during dash, allowed after")
+    finally:
+        ctx.close()
+
+
+# In-page jump sampler (§79.5): per rendered frame, feet y + jumpsUsed.
+_MJ_SAMPLER = """() => {
+  window.__somMJ = { rows: [], run: 0, peak: null };
+  const tick = () => {
+    const M = window.__SOM_METRICS__;
+    if (M && M.player) {
+      const p = M.player;
+      const r = window.__somMJ;
+      if (r.run > 0) {
+        r.rows.push({ t: M.gameTime, run: r.run, y: p.y, ju: p.jumpsUsed,
+                      og: p.onGround });
+        r.peak = Math.min(r.peak ?? Infinity, p.y);
+      }
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}"""
+
+
+def test_midair_double_jump(browser):
+    """SPEC §79.5: midair double jump — Sara YES, Raha NO, Aram NO. One
+    single-jump reference flight, then a second flight where a distinct
+    physical jump source (ArrowUp, §37/§38) fires midair near apex."""
+    name = "test: Midair double jump: Sara yes, others no (§79.5)"
+    results = []
+    for key, unlock in (("sara", False), ("raha", True), ("aram", True)):
+        ctx = _new_test_context(browser)
+        page = _boot_page(ctx)
+        errors: list[str] = []
+        page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+        try:
+            if unlock:
+                if not page.evaluate(f"() => window.__SOM_TEST_API__.forceUnlock('{key}')"):
+                    results.append(f"{key}: forceUnlock refused")
+                    ctx.close()
+                    continue
+                page.keyboard.press("2" if key == "raha" else "3")
+                page.wait_for_timeout(150)
+            m = _metrics(page)
+            if m["player"]["character"] != key:
+                results.append(f"{key}: switch did not land (§20)")
+                ctx.close()
+                continue
+            page.evaluate("() => window.__SOM_TEST_API__.teleport(300, 594, 0)")
+            page.wait_for_timeout(120)
+            page.evaluate(_MJ_SAMPLER)
+
+            # Flight 1: single-jump reference. Space is HELD through the
+            # ascent in BOTH flights (identical hold profile => identical
+            # variable-jump-cut behavior => comparable apex heights).
+            page.evaluate("() => { window.__somMJ.run = 1; window.__somMJ.peak = null; }")
+            page.keyboard.down("Space")
+            page.wait_for_timeout(700)            # apex + descent underway
+            page.keyboard.up("Space")
+            page.wait_for_timeout(400)            # landing
+            single_peak = page.evaluate("() => window.__somMJ.peak")
+
+            # Flight 2: first jump, then a DISTINCT source midair near apex.
+            page.evaluate("() => { window.__somMJ.run = 2; window.__somMJ.peak = null; }")
+            page.keyboard.down("Space")
+            page.wait_for_timeout(220)            # airborne, jumpsUsed == 1
+            page.evaluate(
+                "() => window.dispatchEvent(new KeyboardEvent('keydown', {code: 'ArrowUp'}))")
+            page.wait_for_timeout(500)
+            page.keyboard.up("Space")
+            page.wait_for_timeout(500)
+            mj = page.evaluate("() => ({ peak: window.__somMJ.peak, "
+                               "rows: window.__somMJ.rows.filter(r => r.run === 2) })")
+            max_ju = max((r["ju"] for r in mj["rows"]), default=0)
+
+            if single_peak is None or mj["peak"] is None:
+                results.append(f"{key}: flight sampling failed")
+            elif key == "sara":
+                if max_ju != 2:
+                    results.append(f"sara: midair second jump never fired (jumpsUsed max {max_ju})")
+                elif mj["peak"] > single_peak - 80:
+                    results.append(f"sara: second rise only {single_peak - mj['peak']:.0f}px (< 80)")
+                else:
+                    results.append(f"sara: +{single_peak - mj['peak']:.0f}px second rise OK")
+            else:
+                if max_ju != 1:
+                    results.append(f"{key}: midair double jump fired (jumpsUsed {max_ju}) — forbidden")
+                elif abs(mj["peak"] - single_peak) > 20:
+                    results.append(f"{key}: trajectory diverged {abs(mj['peak'] - single_peak):.0f}px")
+                else:
+                    results.append(f"{key}: single-jump trajectory only OK")
+            if errors:
+                results.append(f"{key}: " + "; ".join(errors[:2]))
+        finally:
+            ctx.close()
+
+    problems = [r for r in results if not r.endswith("OK")]
+    if problems:
+        return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+    summary = "; ".join(r for r in results if r.endswith("OK"))
+    return Result(name, "PASS", summary)
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
@@ -784,6 +1152,9 @@ _IMPLS = {
     "horizontal_collision": test_horizontal_collision,
     "fall_death": test_fall_death,
     "enemy_score_uniqueness": test_enemy_score_uniqueness,
+    "aram_slow_motion": test_aram_slow_motion,
+    "character_switching": test_character_switching,
+    "midair_double_jump": test_midair_double_jump,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:
