@@ -499,7 +499,9 @@ def test_sara_double_jump(browser):
         p = m["player"]
         if p["character"] != "sara":
             return Result(name, "FAIL", f"active character is {p['character']}, not sara")
-        if not p["onGround"] or abs(p["y"] - 608) > 0.001:
+        # Amended §18 scale pass: spawn top sits at groundY - 62 = 594
+        # (feet exactly on the 656 ground line for the 62px-tall roster).
+        if not p["onGround"] or abs(p["y"] - 594) > 0.001:
             return Result(name, "FAIL", "player not standing at spawn before the maneuver")
         page.evaluate(_DJ_SAMPLER)
         page.keyboard.down("Space")          # HELD through the entire maneuver
@@ -592,7 +594,7 @@ def test_horizontal_collision(browser):
             problems.append(f"vx = {settled['vx']} while blocked (expected 0)")
         if abs(after["x"] - wall_x) > 0.001 or after["vx"] != 0:
             problems.append("position/velocity changed after release")
-        if abs(after["y"] - 608) > 0.001:
+        if abs(after["y"] - 594) > 0.001:   # amended §18 spawn fixture (groundY - 62)
             problems.append("vertical position disturbed during a horizontal test")
         if errors:
             problems.append("; ".join(errors[:3]))
@@ -662,6 +664,118 @@ def test_fall_death(browser):
         ctx.close()
 
 
+def test_enemy_score_uniqueness(browser):
+    """SPEC §79.17: the kill score is awarded exactly once per enemy per run,
+    at the authoritative DEAD transition (§28/§59) — no re-award through
+    duplicate DEAD transitions, no re-award when the corpse is struck again,
+    and the corpse never damages. The checkpoint/Restart clauses reuse the
+    same defeatedEnemyIds authority and activate with those flows (Phases
+    11/13)."""
+    name = "test: Enemy score uniqueness (§79.17)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+
+    def metrics():
+        return _metrics(page)
+
+    def find(mid):
+        return next((e for e in metrics()["enemies"] if e["id"] == mid), None)
+
+    try:
+        m = metrics()
+        ids = [e["id"] for e in m["enemies"]]
+        if "c1_1_enemy_001" not in ids or "c1_1_enemy_002" not in ids:
+            return Result(name, "FAIL", f"chapter 1-1 patrollers missing: {ids}")
+        e1 = find("c1_1_enemy_001")
+        if (e1["w"], e1["h"]) != (42, 62):
+            return Result(name, "FAIL",
+                          f"patroller dims {e1['w']}x{e1['h']}, expected 42x62 (§29 x1.3)")
+        if m["score"] != 0 or m["kills"] != 0 or m["defeatedEnemyIds"]:
+            return Result(name, "FAIL",
+                          f"fresh-run state wrong: score={m['score']} kills={m['kills']} "
+                          f"defeated={m['defeatedEnemyIds']}")
+        if m["player"]["hp"] != 5:
+            return Result(name, "FAIL", f"Sara starting HP {m['player']['hp']}, expected 5")
+
+        problems: list[str] = []
+
+        # 1) ORGANIC stomp kill through the real collision + award path (§40):
+        #    teleport above the patroller and drop — vy>200 crossing the top.
+        e1 = find("c1_1_enemy_001")
+        px = e1["x"] + e1["w"] / 2 - m["player"]["w"] / 2
+        page.evaluate(f"() => window.__SOM_TEST_API__.teleport({px}, {e1['y'] - 100}, 250)")
+        deadline = time.time() + 5.0
+        killed = None
+        while time.time() < deadline:
+            page.wait_for_timeout(100)
+            killed = find("c1_1_enemy_001")
+            if killed and killed["dead"]:
+                break
+        after_stomp = metrics()
+        if not (killed and killed["dead"]):
+            problems.append("stomp never killed the patroller")
+        else:
+            # 100 base x3 Perfect Landing (§41: stomp kill) = 300, awarded once
+            if after_stomp["score"] != 300:
+                problems.append(f"score after stomp kill = {after_stomp['score']}, "
+                                f"expected 300 (base 100 x3 Perfect Landing, §41/§59)")
+            if after_stomp["kills"] != 1:
+                problems.append(f"kills = {after_stomp['kills']}, expected 1")
+            if "c1_1_enemy_001" not in after_stomp["defeatedEnemyIds"]:
+                problems.append("id missing from defeatedEnemyIds (§28)")
+            if after_stomp["player"]["hp"] != 5:
+                problems.append(f"player HP {after_stomp['player']['hp']} after a clean "
+                                f"stomp — expected 5 (no contact damage on stomp)")
+
+        # 2) no duplicate award while idle
+        page.wait_for_timeout(800)
+        m2 = metrics()
+        if m2["score"] != after_stomp["score"] or m2["kills"] != after_stomp["kills"]:
+            problems.append("score/kills changed while idle (duplicate award path)")
+
+        # 3) the corpse is non-collidable + non-damaging (§31): drop onto it
+        e1 = find("c1_1_enemy_001")
+        page.evaluate(f"() => window.__SOM_TEST_API__.teleport({e1['x']}, {e1['y'] - 60}, 300)")
+        page.wait_for_timeout(700)
+        m3 = metrics()
+        if m3["score"] != after_stomp["score"] or m3["kills"] != after_stomp["kills"]:
+            problems.append("re-award after striking the corpse (§28)")
+        if m3["player"]["hp"] < after_stomp["player"]["hp"]:
+            problems.append("dead enemy dealt contact damage (§31 non-damaging)")
+
+        # 4) duplicate DEAD transition through the award path itself: the
+        #    second patroller is force-killed (organic §59 path, base score —
+        #    not a stomp, so no Perfect Landing; streak 1 < 3 -> no combo),
+        #    then the same kill is forced AGAIN — exactly one award total.
+        page.evaluate("() => window.__SOM_TEST_API__.forceKill('c1_1_enemy_002')")
+        page.wait_for_timeout(200)
+        ma = metrics()
+        page.evaluate("() => window.__SOM_TEST_API__.forceKill('c1_1_enemy_002')")
+        page.wait_for_timeout(200)
+        mb = metrics()
+        if ma["score"] != after_stomp["score"] + 100 or ma["kills"] != 2:
+            problems.append(f"second kill award wrong: score={ma['score']} kills={ma['kills']} "
+                            f"(expected +100 / 2)")
+        if mb["score"] != ma["score"] or mb["kills"] != ma["kills"]:
+            problems.append("duplicate DEAD transition re-awarded the kill (§28/§59)")
+        if len(mb["defeatedEnemyIds"]) != 2:
+            problems.append(f"defeatedEnemyIds = {mb['defeatedEnemyIds']}, expected 2 entries")
+
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS",
+                      f"stomp kill awarded once (100x3 Perfect Landing = 300, kills 1); "
+                      f"no idle/corpse/duplicate-transition re-award; second kill +100 "
+                      f"exactly once; corpse non-damaging")
+    finally:
+        ctx.close()
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
@@ -669,6 +783,7 @@ _IMPLS = {
     "sara_double_jump": test_sara_double_jump,
     "horizontal_collision": test_horizontal_collision,
     "fall_death": test_fall_death,
+    "enemy_score_uniqueness": test_enemy_score_uniqueness,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:

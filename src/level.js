@@ -18,7 +18,8 @@
 //                                         rareCoin | crystal | health |
 //                                         heart | fragment
 //   checkpoint {id, trigger, respawn}  — trigger rect + respawn point
-//                                         (top-left of a 48x48 respawn box)
+//                                         (top-left for the 62px-tall roster,
+//                                         amended §18 scale pass)
 //   miniBoss   {id, template, hp, scale, pattern, reward, arena}
 //
 // The 12 placeholder chapters are produced by a DETERMINISTIC factory
@@ -30,6 +31,9 @@
 // CAMERA_REST_GROUND_SCREEN_Y matches this line — see constants.js).
 const GROUND_Y = 656;
 const GROUND_H = 64;
+// Amended §18 scale pass: characters and enemies are 62px tall (x1.3), so
+// authored spawn tops sit at GROUND_Y - 62 (feet exactly on the ground line).
+const SPAWN_Y = GROUND_Y - 62;           // 594 — respawn/enemy authored top
 
 // Deterministic factory for not-yet-authored chapters (Phase 12 re-authors).
 // Keeps the 15-chapter system complete: length, bounds, and the auto
@@ -45,7 +49,7 @@ function unauthoredChapter(id, act, name, length, startX) {
     checkpoint: Object.freeze({
       id: `c${id.replace('-', '_')}_cp_start`,
       trigger: Object.freeze({ x: startX, y: 0, w: 48, h: 720 }),
-      respawn: Object.freeze({ x: startX + 80, y: GROUND_Y - 48 }),
+      respawn: Object.freeze({ x: startX + 80, y: SPAWN_Y }),
     }),
     midCheckpoints: Object.freeze([]),
     miniBoss: null,
@@ -85,9 +89,9 @@ export const LEVEL_DATA = Object.freeze({
         Object.freeze({ x: 2820, y: 656, w: 580, h: GROUND_H }),    // mini-boss plateau
       ]),
       enemies: Object.freeze([
-        Object.freeze({ id: 'c1_1_enemy_001', type: 'patroller', x: 1500, y: 608,
+        Object.freeze({ id: 'c1_1_enemy_001', type: 'patroller', x: 1500, y: 594,
                         patrol: Object.freeze({ minX: 1450, maxX: 1850 }) }),
-        Object.freeze({ id: 'c1_1_enemy_002', type: 'patroller', x: 2200, y: 608,
+        Object.freeze({ id: 'c1_1_enemy_002', type: 'patroller', x: 2200, y: 594,
                         patrol: Object.freeze({ minX: 2150, maxX: 2520 }) }),
       ]),
       collectibles: Object.freeze([
@@ -103,7 +107,7 @@ export const LEVEL_DATA = Object.freeze({
       checkpoint: Object.freeze({
         id: 'c1_1_cp_start',
         trigger: Object.freeze({ x: 0, y: 0, w: 48, h: 720 }),
-        respawn: Object.freeze({ x: 300, y: 608 }),
+        respawn: Object.freeze({ x: 300, y: 594 }),
       }),
       midCheckpoints: Object.freeze([]),
       miniBoss: Object.freeze({
@@ -133,10 +137,10 @@ export const LEVEL_DATA = Object.freeze({
         Object.freeze({ x: 6700, y: 420, w: 140, h: 24 }),
       ]),
       enemies: Object.freeze([
-        Object.freeze({ id: 'c1_2_enemy_001', type: 'patroller', x: 4000, y: 608,
+        Object.freeze({ id: 'c1_2_enemy_001', type: 'patroller', x: 4000, y: 594,
                         patrol: Object.freeze({ minX: 3950, maxX: 4500 }) }),
-        Object.freeze({ id: 'c1_2_enemy_002', type: 'chaser', x: 5300, y: 608 }),
-        Object.freeze({ id: 'c1_2_enemy_003', type: 'patroller', x: 6250, y: 608,
+        Object.freeze({ id: 'c1_2_enemy_002', type: 'chaser', x: 5300, y: 594 }),
+        Object.freeze({ id: 'c1_2_enemy_003', type: 'patroller', x: 6250, y: 594,
                         patrol: Object.freeze({ minX: 6170, maxX: 6400 }) }),
       ]),
       collectibles: Object.freeze([
@@ -152,13 +156,13 @@ export const LEVEL_DATA = Object.freeze({
       checkpoint: Object.freeze({
         id: 'c1_2_cp_start',
         trigger: Object.freeze({ x: 3400, y: 0, w: 48, h: 720 }),
-        respawn: Object.freeze({ x: 3480, y: 608 }),
+        respawn: Object.freeze({ x: 3480, y: 594 }),
       }),
       midCheckpoints: Object.freeze([
         Object.freeze({
           id: 'c1_2_cp_mid',
           trigger: Object.freeze({ x: 6120, y: 0, w: 40, h: 720 }),
-          respawn: Object.freeze({ x: 6180, y: 608 }),
+          respawn: Object.freeze({ x: 6180, y: 594 }),
         }),
       ]),
       miniBoss: Object.freeze({
@@ -188,10 +192,10 @@ export const LEVEL_DATA = Object.freeze({
                         id: 'c1_3_brk_001' }),                       // first breakable
       ]),
       enemies: Object.freeze([
-        Object.freeze({ id: 'c1_3_enemy_001', type: 'patroller', x: 7500, y: 608,
+        Object.freeze({ id: 'c1_3_enemy_001', type: 'patroller', x: 7500, y: 594,
                         patrol: Object.freeze({ minX: 7450, maxX: 8050 }) }),
-        Object.freeze({ id: 'c1_3_enemy_002', type: 'chaser', x: 8800, y: 608 }),
-        Object.freeze({ id: 'c1_3_enemy_003', type: 'patroller', x: 9300, y: 608,
+        Object.freeze({ id: 'c1_3_enemy_002', type: 'chaser', x: 8800, y: 594 }),
+        Object.freeze({ id: 'c1_3_enemy_003', type: 'patroller', x: 9300, y: 594,
                         patrol: Object.freeze({ minX: 9250, maxX: 9550 }) }),
       ]),
       collectibles: Object.freeze([
@@ -206,7 +210,7 @@ export const LEVEL_DATA = Object.freeze({
       checkpoint: Object.freeze({
         id: 'c1_3_cp_start',
         trigger: Object.freeze({ x: 7000, y: 0, w: 48, h: 720 }),
-        respawn: Object.freeze({ x: 7080, y: 608 }),
+        respawn: Object.freeze({ x: 7080, y: 594 }),
       }),
       midCheckpoints: Object.freeze([]),
       miniBoss: Object.freeze({
