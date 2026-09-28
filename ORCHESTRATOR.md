@@ -5,6 +5,19 @@ sources: SPEC §84–§110. Tooling: `tools/phase-runner.sh` (state machine),
 `tools/telegram-listener.py` (commands), `tools/notify.py` (notifications),
 `tools/acceptance.py` (tests), `tools/screenshot.sh` (captures).
 
+2026-09-28 MASTER AMENDMENT (user-approved, applied before Phase 6): SPEC
+fully revised — moon removed (Light Behind the Castle canon), Kian story
+canon, progressive character unlock, ×1.3 scale + ZOOM 1.25, environment
+density/texture/lighting, strategic combat depth (weaknesses, kill methods,
+enemy matrix, gates, switch combos), save v2 `unlockedCharacters`, particle
+cap 400, three unlockable endings. Phase re-mapping: canon visual fix +
+scale pass lead Phase 6; unlock/combat-depth systems land in Phase 7;
+enemy weakness enforcement in Phase 8; save/UI in Phase 9; environment
+density in Phase 10; Kian content in Phases 11–12; ending triggers/cards in
+Phase 13. See TASKS.md phase table and amended SPEC §4–§103. Operational
+rules (state machine, Git/Telegram lifecycle, CI, secrets) are UNCHANGED
+by this amendment.
+
 ## 1. Phase state machine (§100)
 
 ```

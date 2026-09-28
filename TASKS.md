@@ -9,6 +9,39 @@ width ~50000px. Each chapter ~3000–4000px, ~8–10 min, ends with a mini-boss
 challenge. Final boss: Queen of Light (Aram's mother) at the end of 3-5.
 Save schema v2. Runtime budget 400KB. See amended SPEC §43–§53, §63, §67, §77.
 
+2026-09-28 MASTER AMENDMENT (user-approved, pre-Phase 6 — applied to
+SPEC before Phase 6 begins):
+- STORY CANON: the moon is GONE (stolen; NO moon render anywhere);
+  "Light Behind the Castle" replaces it with per-act progression
+  (Act 1 pitch black; Act 2 faint glow; Act 3 clear glow + lightened
+  horizon; 3-5 flicker; victory = moon rise). Kian (Sara's brother)
+  canon + foreshadowing (scarf 1-4, caged glimpse 2-3, encounter 3-4,
+  choice 3-5). Queen of Light = Aram's mother, emotional climax.
+  All three warriors female (re-confirmed).
+- PROGRESSIVE UNLOCK: Sara only (1-1/1-2); +Raha (1-3); +Aram (1-5);
+  all three from 2-1. Locked slots greyed + lock icon, non-interactive;
+  unlock particle burst; 3-5s non-blocking tutorials; persists via
+  save v2 unlockedCharacters.
+- VISIBILITY: character scale ×1.3 (38×62 / 44×62 / 40×62); global
+  ZOOM 1.25 (~1024×576 window); enemy dims ×1.3; collectibles ×1.3;
+  physics UNCHANGED; character detail (faces, outfits, orb); drop
+  shadow + 1px outline; arms outside cloak, ±10px swings, body bob.
+- ENVIRONMENT: background/midground/foreground density bands, set
+  dressing, per-chapter themes, procedural platform textures,
+  lighting/depth (fog, radial glows, rim light, atmospheric
+  perspective); hit particles; particle cap 200→400.
+- COMBAT DEPTH: per-character weaknesses; distinct kill methods;
+  Sara dash damage 0→1 (pass-through, once per enemy per dash);
+  enemy weakness/resistance matrix (Armored absorbs Aram magic);
+  environmental gates; character-switch combos (1.5s window);
+  strategic matrix. §38 note: dash damage does not affect the
+  double-jump test.
+- SAVE V2: + unlockedCharacters; triggers unchanged otherwise.
+- ENDINGS: three unlockable (Sacrifice S/damage≤2 · Battle A/B ·
+  Hidden Truth = 3 crystals + NPCs); victory screen shows 3 cards.
+See amended SPEC §4, §7, §9, §15–§25, §27–§33, §38, §50, §52–§57,
+§62, §63, §65, §67, §77, §78, §83, §103.
+
 Status legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 
 ## Phase overview
@@ -21,14 +54,14 @@ Status legend: `[ ]` pending · `[~]` in progress · `[x]` done · `[!]` blocked
 | 3 | Sara rendering; animation; squash/stretch | phase/03-sara-rendering | 2 | — (screenshot verification) | [x] |
 | 4 | Camera; parallax; moon; castle environment | phase/04-camera-parallax | 3 | — (screenshot verification) | [x] |
 | 5 | Level data system for 15 chapters (schema, chapter intervals, chapter-scoped ID schemes); author chapters 1-1 through 1-3 as examples | phase/05-chapter-level-system | 4 | — (level integrity covered by later tests) | [x] |
-| 6 | Patroller; player-enemy collision; base AI; defeatedEnemyIds integration | phase/06-patroller-ai | 5 | 79.17 enemy score uniqueness | [ ] |
-| 7 | Raha; Aram; switching; abilities; cooldown architecture | phase/07-roster-abilities | 6 | 79.3 Aram slow-motion · 79.4 switching · 79.5 midair double jump | [ ] |
-| 8 | Chaser; Armored; Brute; mini-boss variant of Brute; enemy animation states; group behavior; Brute radial attack | phase/08-enemy-roster | 7 | 79.2 Raha slam | [ ] |
-| 9 | Coins; crystals; HUD; screens; localStorage save schema v2 (chapter progress, auto-save triggers) | phase/09-collect-hud-saves | 8 | 79.14 fullscreen · 79.15 persistence | [ ] |
-| 10 | Hit-stop; shake; dust; dash trail; cooldown ring; damage flash | phase/10-game-feel | 9 | — (regression only) | [ ] |
-| 11 | A: inscriptions (45)/flashback (15)/NPC (15) · B: 15 chapter checkpoints/respawn · C: adaptive difficulty (per act) | phase/11-storytelling-checkpoints | 10 | 79.9 checkpoint duplicate score | [ ] |
-| 12 | A: chapters 1-4 .. 2-5 · B: chapters 3-1 .. 3-4 · C: chapter 3-5 + Queen of Light final battle + moon gate | phase/12-world-chapters-final | 11 | 79.18 final battle gate | [ ] |
-| 13 | Rewards; rank; pause menu; heart containers; health pickups; clear-record flow | phase/13-rewards-rank-menu | 12 | 79.10 restart duplicate score | [ ] |
+| 6 | Canon visual fix: remove the moon → Light Behind the Castle (§55); ZOOM 1.25 + ×1.3 scale pass (§7/§18/§29/§48/§53); Patroller; player-enemy collision; base AI; defeatedEnemyIds integration | phase/06-patroller-ai | 5 | 79.17 enemy score uniqueness | [ ] |
+| 7 | Raha; Aram; switching; abilities; cooldown architecture; progressive unlock + tutorials (§20); character detail/shadow/outline/limb animation; weaknesses + kill methods + dash-through damage; switch combos (§20.1); environmental gate mechanics (§50) | phase/07-roster-abilities | 6 | 79.3 Aram slow-motion · 79.4 switching · 79.5 midair double jump | [ ] |
+| 8 | Chaser; Armored; Brute; mini-boss variant of Brute; enemy animation states; group behavior; Brute radial attack; enemy weakness/resistance enforcement (Armored absorbs Aram magic, §29.1) | phase/08-enemy-roster | 7 | 79.2 Raha slam | [ ] |
+| 9 | Coins; crystals; HUD; screens; save schema v2 incl. unlockedCharacters persistence (§63); locked-selector UI (§15/§65) | phase/09-collect-hud-saves | 8 | 79.14 fullscreen · 79.15 persistence | [ ] |
+| 10 | Hit-stop; shake; dust; dash trail; cooldown ring; damage flash; hit particles; environment density + set dressing + per-chapter themes + procedural platform textures + lighting/depth (§55–§57); particle cap 400 | phase/10-game-feel | 9 | — (regression only) | [ ] |
+| 11 | A: inscriptions (45)/flashback (15)/NPC (15) incl. Kian foreshadowing + unlock cinematics · B: 15 chapter checkpoints/respawn · C: adaptive difficulty (per act) | phase/11-storytelling-checkpoints | 10 | 79.9 checkpoint duplicate score | [ ] |
+| 12 | A: chapters 1-4 .. 2-5 · B: chapters 3-1 .. 3-4 (Kian encounter in 3-4) · C: chapter 3-5 + Queen of Light final battle + Kian's choice + moon rise + moon gate | phase/12-world-chapters-final | 11 | 79.18 final battle gate | [ ] |
+| 13 | Rewards; rank; pause menu; heart containers; health pickups; clear-record flow; three ending triggers + victory ending cards (§52/§62/§65) | phase/13-rewards-rank-menu | 12 | 79.10 restart duplicate score | [ ] |
 | 14 | Final acceptance; regression; manual checklist; Pages deploy; multi-touch verification; README verification | phase/14-final-acceptance | 13 | 79.11 performance · 79.16 safe-area · ALL (strict) | [ ] |
 
 ## Acceptance test → phase map (§80)
@@ -64,11 +97,13 @@ executed failure (SPEC §80).
 Phases 11 and 12 each contain three milestones completed IN ORDER.
 Each milestone is an internal commit point on the phase branch:
 
-- Phase 11: **A** inscriptions (45) + flashback (15) + NPC (15) →
-  **B** 15 chapter checkpoints + respawn rules → **C** adaptive
-  difficulty (per act)
-- Phase 12: **A** chapters 1-4 .. 2-5 → **B** chapters 3-1 .. 3-4 →
-  **C** chapter 3-5 + final battle (Queen of Light) + moon gate
+- Phase 11: **A** inscriptions (45) + flashback (15) + NPC (15),
+  including Kian-foreshadowing texts and the three unlock-event
+  cinematics → **B** 15 chapter checkpoints + respawn rules →
+  **C** adaptive difficulty (per act)
+- Phase 12: **A** chapters 1-4 .. 2-5 → **B** chapters 3-1 .. 3-4
+  (Kian's full encounter in 3-4) → **C** chapter 3-5 + final battle
+  (Queen of Light) + Kian's choice + the moon rise + moon gate
 
 ## Per-phase Definition of Done (§102)
 
