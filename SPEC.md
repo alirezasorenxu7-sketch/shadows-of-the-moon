@@ -85,6 +85,8 @@ Playwright is allowed only as a test dependency.
 
 The land is Midnight. The sun disappeared long ago. The moon is the only remaining major source of light. The Shadows have stolen the moon and imprisoned it beyond a dark castle. Three warriors unite to recover it.
 
+CANON: all three warriors are FEMALE. She/her pronouns for Sara, Raha, and Aram in all dialogue, narration, and visual design.
+
 Sara:
 - Element: Wind
 - Color: Blue #4a9eff
@@ -405,25 +407,27 @@ Best-effort.
 18. CHARACTER ROSTER
 ==================================================
 
+CANON: Sara, Raha, and Aram are all FEMALE. She/her pronouns for all three, everywhere: dialogue, narration, visual design.
+
 Base max HP:
 Sara: 5
 Raha: 8
 Aram: 6
 
 18.1 Sara
-Wind. #4a9eff. Visual 28 px. Hitbox 30x48.
+Female. Wind. #4a9eff. Visual 28 px. Hitbox 30x48.
 Appearance: slender, long blonde hair #e8d174, blue tunic #4a9eff, darker blue #1e5aa8, short cloak #1e5aa8, brown boots #6a4a30.
 Animations: idle (bob + hair sway), attack (quick arm extension), special (crouch + blue afterimage).
 Abilities: double jump, dash, knife.
 
 18.2 Raha
-Mountain. #e63946. Visual 36 px. Hitbox 34x48.
-Appearance: broad, dark spiky hair #241812, dark armor #2a2a2a, red tunic #e63946, long red scarf #8a1f2a, dark boots #1a0d0d.
+Female. Mountain. #e63946. Visual 36 px. Hitbox 34x48.
+Appearance: broad and imposing female warrior; dark hair #241812 swept into a fierce high warrior braid with loose front strands; dark armor #2a2a2a worn over red tunic #e63946; long red scarf #8a1f2a; dark boots #1a0d0d. Subtle feminine cues (braid, waist taper, scarf flow) while keeping her broad, powerful silhouette.
 Animations: idle (chest rise/fall), attack (wide arm swing), special (airborne tuck).
 Abilities: slam, shockwave.
 
 18.3 Aram
-Shadow. #9d4edd. Visual 30 px. Hitbox 32x48.
+Female. Shadow. #9d4edd. Visual 30 px. Hitbox 32x48.
 Appearance: slim, silver-white hair #eee8ff, outer robe #9d4edd, inner robe #1a1030, orbiting orb #c77dff.
 Animations: idle (subtle float), attack (point forward + purple glow), special (outline pulse).
 Abilities: magic, slow-motion, shield.

@@ -90,6 +90,43 @@ export const SARA_PALETTE = Object.freeze({
   eye: '#0a0d14',       // dark eyes (render-authored)
 });
 
+// ---- camera (SPEC §53 — locked factors) ------------------------------------
+// Framerate-independent exponential follow: camera += (target - camera) *
+// (1 - exp(-factor * dt)). Look-ahead: 40px in facing direction, +20px more
+// while |vx| > 300px/s. Horizontal clamp keeps the view inside the level.
+export const CAMERA_FACTOR_X = 7;            // horizontal smoothing factor
+export const CAMERA_FACTOR_Y = 5;            // vertical smoothing factor
+export const CAMERA_LOOKAHEAD = 40;          // px ahead of the facing direction
+export const CAMERA_LOOKAHEAD_FAST = 20;     // additional px at high speed
+export const CAMERA_LOOKAHEAD_SPEED = 300;   // px/s threshold for the extra px
+// Vertical policy (render-authored within §53's freedom, which pins only the
+// smoothing factor): a comfort deadzone in screen space plus a rest anchor.
+// While airborne the view holds inside the band [BAND_TOP, BAND_BOTTOM]
+// (measured as playerCenterY - camera.y); leaving the band eases the camera
+// with factor 5. While grounded the camera re-anchors so the zone's groundY
+// rests at CAMERA_REST_GROUND_SCREEN_Y — normal jumps never move the view.
+export const CAMERA_BAND_TOP = 200;          // px; above this the camera rises
+export const CAMERA_BAND_BOTTOM = 660;       // px; below this the camera drops
+export const CAMERA_REST_GROUND_SCREEN_Y = 656; // ground top rest line on screen
+
+// ---- parallax layers (SPEC §55 — locked factors) ---------------------------
+export const PARALLAX_STARS = 0.1;           // 1. stars / dark clouds
+export const PARALLAX_MOON = 0.15;           // 2. moon + blue-white halo
+export const PARALLAX_CASTLE = 0.3;          // 3. gothic castle + spires + windows
+export const PARALLAX_TREES = 0.5;           // 4. silhouetted trees + ruined pillars
+export const PARALLAX_GRASS = 1.2;           // 5. foreground grass
+
+// ---- environment palette (SPEC §55 — locked tones + authored detail shades) -
+export const MOON_COLOR = '#e8f0ff';         // moon disc (§55)
+export const CLOUD_TONE = '#0a0f1c';         // dark cloud silhouettes (authored)
+export const CASTLE_TONE = '#080b14';        // gothic castle silhouette (authored)
+export const CASTLE_WINDOW = '#e07b2a';      // orange windows (authored)
+export const CASTLE_WINDOW_BRIGHT = '#f2a04c'; // brighter window variance (authored)
+export const TREE_TONE = '#070a12';          // tree silhouettes (authored)
+export const PILLAR_TONE = '#0a0d16';       // ruined pillars (authored)
+export const GRASS_TONE = '#04060c';         // foreground grass (authored)
+export const FOG_TONE = '#05070f';           // bottom fog band (authored)
+
 // ---- squash & stretch (SPEC §57 — locked factors, Phase 3) -----------------
 export const SQUASH_DURATION = 0.1;   // seconds to ease back to neutral ("~0.1s")
 export const SQUASH_JUMP_Y = 1.15;    // jump takeoff: Y * 1.15
