@@ -5,6 +5,41 @@ sources: SPEC §84–§110. Tooling: `tools/phase-runner.sh` (state machine),
 `tools/telegram-listener.py` (commands), `tools/notify.py` (notifications),
 `tools/acceptance.py` (tests), `tools/screenshot.sh` (captures).
 
+2026-09-28 MASTER AMENDMENT (user-approved, applied before Phase 6): SPEC
+fully revised — moon removed (Light Behind the Castle canon),
+brother story canon, progressive character unlock, ×1.3 scale +
+ZOOM 1.25, environment density/texture/lighting, strategic combat
+depth (weaknesses, kill methods, enemy matrix, gates, switch
+combos), save v2 `unlockedCharacters`, particle cap 400, three
+unlockable endings. Phase re-mapping: canon visual fix +
+scale pass lead Phase 6; unlock/combat-depth systems land in Phase 7;
+enemy weakness enforcement in Phase 8; save/UI in Phase 9; environment
+density in Phase 10; brother-track content in Phases 11–12; ending
+triggers/cards in Phase 13. See TASKS.md phase table and amended
+SPEC §4–§103. Operational rules (state machine, Git/Telegram
+lifecycle, CI, secrets) are UNCHANGED by this amendment.
+
+2026-09-28 VILLAIN TRACK CLARIFICATION (user-approved, applied before
+Phase 6, on top of the master amendment): Sara's brother is named
+POURIA (renamed from Kian) — a parallel PERSONAL antagonist for
+Sara only, NOT a general, NOT a mini-boss, NOT in the standard
+enemy roster (new SPEC §52.2). Villain hierarchy canonized (SPEC
+§4): Shadow King (main, behind the scenes); Act generals —
+Shadow Demon (Act 1), Silent Lady (Act 2), King's Right Hand
+(Act 3), none of them Pouria; Queen of Light = final boss
+(Aram's mother, three-phase, 3-5). Pouria beats: 2-5 escape
+fight, 3-1 fear beat, 3-4 non-lethal final fight (corruption
+HP + real HP, lethal-only floors real HP at 1 + invulnerable
+until a non-lethal mechanic). THE CHOICE (3-5) expanded: three
+simultaneous beats (Queen freed, King exposed, Pouria on the
+brink); true-ending-only third option (Aram's mother offers her
+life force). Ending ties updated (E1 Sara sacrifices / E2
+Pouria loses memories / E3 Aram's mother sacrifices — Pouria +
+moon both saved). Phase mapping: Pouria texts in Phase 11;
+fights, choice, resolution in Phase 12; ending ties in Phase
+13. Operational rules (state machine, Git/Telegram lifecycle,
+CI, secrets) remain UNCHANGED.
+
 ## 1. Phase state machine (§100)
 
 ```
@@ -187,7 +222,8 @@ PHASE=$(echo "$BRANCH" | sed -nE 's|^phase/([0-9]+)(-.+)?$|\1|p')   # else 14
 Steps: install Playwright (test env only) → start `python -m http.server 8000
 --bind 127.0.0.1` → wait for readiness (no tests before) →
 `python tools/acceptance.py --phase "$PHASE"` → upload screenshots artifact →
-stop server. Hard-fails on executed test failure, runtime size ≥ 200 KB,
+stop server. Hard-fails on executed test failure, runtime size ≥ 400 KB
+(raised from 200 KB by the act/chapter scope amendment),
 forbidden runtime dependency, missing required file.
 
 ## 6. GitHub Pages (§89)
@@ -203,7 +239,8 @@ deployment. Only runtime assets are staged: `index.html`, `style.css`,
 
 - Required files (all §75 files; `state/telegram_commands.json` is created on
   demand by the listener and intentionally gitignored per §76)
-- Runtime size: raw bytes of `index.html + style.css + src/**` strictly < 200 KB
+- Runtime size: raw bytes of `index.html + style.css + src/**` strictly < 400 KB
+  (raised from 200 KB by the act/chapter scope amendment, SPEC §77)
 - Forbidden runtime scan: no WebGL / non-2d canvas context, no forbidden
   engine/framework/bundler/package-manager references, no bare module
   specifiers (npm), no CDN/network usage (`fetch(`, XHR, WebSocket,

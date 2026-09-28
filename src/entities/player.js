@@ -170,8 +170,10 @@ export function updatePlayer(game, player, held, events, dt, level) {
   }
 
   // ---- death system (§43): fall death and HP death share one path ---------
-  const zone = level.zoneAt(player.x);
-  if (player.y > zone.groundY + FALL_DEATH_OFFSET) {
+  // Fall death uses the ACTIVE CHAPTER's ground line (amended §43/
+  // §46): player.y > activeChapterGroundY + 400.
+  const chapter = level.chapterAt(player.x);
+  if (player.y > chapter.groundY + FALL_DEATH_OFFSET) {
     die(game, player, 'fall');
   } else if (player.hp <= 0) {
     die(game, player, 'hp');

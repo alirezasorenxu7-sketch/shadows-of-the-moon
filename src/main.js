@@ -6,7 +6,9 @@
 // foundation (§36–§39, §43). Phase 4 adds the camera (§53): exponential
 // follow with look-ahead and horizontal clamping, updated inside the fixed
 // sim step at the player-domain rate — “Camera gameplay update: 1.0” (§10),
-// so the view never slows during Slow-motion.
+// so the view never slows during Slow-motion. Phase 5 switches the world
+// model from zones to the 15-chapter / 3-act structure (amended §50, §46):
+// game.currentChapter / currentAct derive from the player's X each step.
 import './constants.js';
 import {
   LOGICAL_W,
@@ -39,11 +41,12 @@ const game = {
   score: 0,
   kills: 0,
   currentRunCoins: 0,
-  currentZone: 1,
+  currentChapter: '1-1',   // chapter id "A-C" derived from player X (§46)
+  currentAct: 1,           // act 1..3 (zones renamed acts, amended §50)
   slowMoActive: false,
   paused: false,
   pauseReasons: new Set(),
-  activeCheckpoint: null,   // no checkpoint until Phase 11 (§44)
+  activeCheckpoint: null,   // no checkpoint until Phase 11 (§44 data authored now)
   lastDeath: null,          // set on the first death of the run (§43)
   camera: { x: 0, y: 0 },   // view center-top anchor, world px (§53, Phase 4)
 };
@@ -53,7 +56,7 @@ const game = {
 // look-ahead in the facing direction (+20px above 300px/s), horizontal clamp
 // so the view never leaves the level. Vertical policy: comfort deadzone
 // [BAND_TOP, BAND_BOTTOM] in screen space while airborne; grounded play
-// re-anchors the zone ground at CAMERA_REST_GROUND_SCREEN_Y — normal jumps
+// re-anchors the chapter ground at CAMERA_REST_GROUND_SCREEN_Y — normal jumps
 // keep the view still, deep falls (pits) and tall climbs move it.
 // NOTE Phase 11: respawn/checkpoint flow should snap the camera to its target
 // instead of easing across the world.
@@ -66,8 +69,8 @@ function updateCamera(dt) {
 
   let targetY;
   if (player.onGround) {
-    const zone = level.zoneAt(player.x);
-    targetY = zone.groundY - CAMERA_REST_GROUND_SCREEN_Y;
+    const chapter = level.chapterAt(player.x);
+    targetY = chapter.groundY - CAMERA_REST_GROUND_SCREEN_Y;
   } else {
     const screenY = player.y + player.h / 2 - c.y;   // player's screen-space y
     if (screenY < CAMERA_BAND_TOP) targetY = player.y + player.h / 2 - CAMERA_BAND_TOP;
@@ -98,6 +101,14 @@ const loop = createLoop({
     const events = input.drainEvents();
     updatePlayer(game, player, input.heldState(), events, dt, level);
     updateCamera(dt);   // §10 “Camera gameplay update: 1.0” — never slowed
+
+    // Chapter/act tracking (amended §46): currentChapter derives from the
+    // player's X within the authored chapter bounds. Chapter-entry side
+    // effects (inscription, completion flow, checkpoint auto-activation,
+    // save v2 write) arrive with Phases 9/11 — Phase 5 only tracks.
+    const chapter = level.chapterAt(player.x);
+    game.currentChapter = chapter.id;
+    game.currentAct = chapter.act;
   },
   render: () => renderer.render(game, level, player),
   onStateChange: updateOverlays,
@@ -192,8 +203,10 @@ function pushMetrics(frameInfo) {
   M.input = input.snapshot();
   M.player = playerSnapshot(player);
   M.camera = { x: game.camera.x, y: game.camera.y };
-  const zone = level.zoneAt(player.x);
-  M.zone = { id: zone.id, groundY: zone.groundY };
+  const chapter = level.chapterAt(player.x);
+  M.chapter = { id: chapter.id, act: chapter.act, groundY: chapter.groundY };
+  M.currentChapter = game.currentChapter;
+  M.currentAct = game.currentAct;
   M.activeCheckpoint = game.activeCheckpoint;
   M.lastDeath = game.lastDeath;
   M.renderTimestamps.push(frameInfo.now);
@@ -214,7 +227,9 @@ if (window.__SOM_TEST__ === true) {
     input: null,
     player: null,
     camera: null,
-    zone: null,
+    chapter: null,
+    currentChapter: null,
+    currentAct: null,
     activeCheckpoint: null,
     lastDeath: null,
     renderTimestamps: [],
