@@ -92,24 +92,45 @@ distant glow behind the castle — the "Light Behind the Castle"
 (§55). On victory the moon RISES from behind the castle: the
 payoff of the whole journey. Three warriors unite to recover it.
 
-KIAN (amended canon — Sara's brother):
-- Kian was captured by the Shadows.
+VILLAIN HIERARCHY (amended canon):
+- MAIN VILLAIN — THE SHADOW KING: behind the scenes; the
+  intelligence behind the Shadows; never a standard enemy.
+- GENERALS (one per Act; each a distinct character; NONE of
+  them is Pouria):
+  - Act 1: SHADOW DEMON (دیوسایه) — a mindless beast
+  - Act 2: SILENT LADY (بانوی خاموش) — a corrupted mother
+  - Act 3: KING'S RIGHT HAND (دست راست شاه) — an elite
+    warrior, intelligent, taunts the party
+- PARALLEL TRACK — POURIA (پوریا), Sara's brother: personal
+  antagonist for Sara only; NOT a general, NOT a mini-boss
+  (§52.2)
+- FINAL BOSS — THE QUEEN OF LIGHT (Aram's mother): three-phase
+  fight at the end of chapter 3-5 (§52)
+
+POURIA (amended canon — Sara's brother, parallel track):
+- Pouria was captured by the Shadows.
 - His life force powers the prison that holds the moon.
-- He is slowly transforming into a Shadow.
-- Sara finds him in Act 3: half-human, half-Shadow.
-Foreshadowing: torn scarf found in chapter 1-4; distant caged
-prisoner glimpse in 2-3 (unreachable); full encounter in 3-4;
-the choice in 3-5 — free him (he dies; the prison weakens) or
-leave him (the moon stays imprisoned). See §67.
+- He is partially corrupted — slowly transforming into a Shadow.
+- Appearances (§67): torn scarf in 1-4 (hint only); glimpse
+  through the bars in 2-3 (half-transformed, Sara recognizes
+  him but cannot reach him); FIRST FIGHT in 2-5 (he attacks,
+  does not recognize Sara; she must flee — she cannot kill
+  him); 3-1 (Sara fears the next encounter); FINAL FIGHT in
+  3-4 (full corruption; non-lethal mechanics, §52.2);
+  resolution with the Queen of Light in 3-5.
+- Killed or freed only via the ending (§52).
 
 THE QUEEN OF LIGHT (final boss, end of chapter 3-5): revealed to
-be Aram's mother. Multi-phase (2-3 phases), distinct from
+be Aram's mother. Three-phase battle, distinct from
 mini-bosses. The emotional climax of the game (§52).
 
 ENDINGS (amended — three, unlockable, §52/§62/§65):
-- Ending 1 (Sacrifice): Sara sacrifices herself; Kian is saved.
-- Ending 2 (Battle): Kian is saved but loses his memories.
-- Ending 3 (Hidden Truth — true ending): both are saved.
+- Ending 1 (Sacrifice): Sara sacrifices herself; Pouria
+  survives.
+- Ending 2 (Battle): Pouria survives but loses his memories of
+  Sara.
+- Ending 3 (Hidden Truth — true ending): Aram's mother
+  sacrifices herself; Pouria and the moon are both saved.
 
 CANON: all three warriors are FEMALE. She/her pronouns for Sara, Raha, and Aram in all dialogue, narration, and visual design. Raha: strong female warrior — broad imposing build, dark armor over red tunic, long red scarf, fierce female look (§18.2).
 
@@ -1216,9 +1237,9 @@ Never a runtime random-roll rule.
 
 Final arena at the end of chapter 3-5.
 Final boss: the Queen of Light — Aram's mother.
-Multi-phase battle (2-3 phases), distinct from chapter
-mini-bosses. This is the emotional climax of the game. Authored
-with the final content (Phase 12).
+Three-phase battle (amended villain-track canon), distinct from
+chapter mini-bosses. This is the emotional climax of the game.
+Authored with the final content (Phase 12).
 
 During the battle the light behind the castle FLICKERS (§55).
 On victory the moon RISES from behind the castle — the payoff of
@@ -1228,16 +1249,26 @@ Moon gate CLOSED while the Queen of Light remains undefeated.
 Gate opens only when the Queen is defeated.
 Open gate: white glowing circular portal.
 
-THE CHOICE (amended, §4/§67): in chapter 3-5 Sara faces Kian —
-free him (he dies; the prison weakens) or leave him (the moon
-stays imprisoned). The choice feeds the ending determination.
+THE CHOICE (amended, §4/§52.2/§67): at the climax of chapter
+3-5 three things happen simultaneously —
+1. the Queen of Light is freed
+2. the Shadow King is exposed
+3. Pouria is on the brink
+The player must choose:
+- Free Pouria — weakens the moon prison (another source of
+  power must be found); involves sacrifice
+- Leave Pouria — the moon stays imprisoned (bad outcome)
+- Third option, true-ending path ONLY (§52.2): Aram's mother
+  offers her own life force to replace Pouria's
+The choice feeds the ending determination.
 
 THREE ENDINGS (amended — unlockable):
-- Ending 1 (Sacrifice): Sara sacrifices herself; Kian is saved.
-  Trigger: Rank S OR damageTaken <= 2 (§62).
-- Ending 2 (Battle): Kian is saved but loses his memories.
-  Trigger: Rank A or B (Rank C defaults here).
-- Ending 3 (Hidden Truth — true ending): both are saved.
+- Ending 1 (Sacrifice): Sara sacrifices herself; Pouria
+  survives. Trigger: Rank S OR damageTaken <= 2 (§62).
+- Ending 2 (Battle): Pouria survives but loses his memories of
+  Sara. Trigger: Rank A or B (Rank C defaults here).
+- Ending 3 (Hidden Truth — true ending): Aram's mother
+  sacrifices herself; Pouria and the moon are both saved.
   Trigger: all 3 moon crystals collected + NPCs interacted
   (authored final-content condition).
 Priority when multiple triggers hold: Ending 3 > Ending 1 > Ending 2.
@@ -1253,6 +1284,47 @@ Completion order:
 6. stop gameplay simulation
 
 "Travel Again" starts new run.
+
+==================================================
+52.2 POURIA — PARALLEL TRACK
+==================================================
+
+Pouria (پوریا), Sara's brother, is a PARALLEL PERSONAL
+ANTAGONIST tied to Sara's arc. He is NOT one of the Shadow
+King's generals, NOT a mini-boss, and NOT part of the standard
+enemy roster (§29). His arc runs parallel to the main plot
+(villain hierarchy, §4).
+
+APPEARANCES:
+- Chapter 1-4: Sara finds his torn scarf — hint only
+- Chapter 2-3: glimpse through the bars — half-transformed;
+  Sara recognizes him but cannot reach him
+- Chapter 2-5: FIRST FIGHT — he attacks and does not recognize
+  Sara; she must flee (she cannot kill him); authored as the
+  chapter's special challenge (§50)
+- Chapter 3-1: Sara fears the next encounter (story beat)
+- Chapter 3-4: FINAL FIGHT — full corruption; Sara must fight
+  him non-lethally (mechanics below); authored as the chapter's
+  special challenge (§50)
+- Chapter 3-5: resolution with the Queen of Light (§52)
+
+Killed or freed only via the ending (§52).
+
+3-4 FIGHT MECHANICS — NON-LETHAL:
+Pouria cannot be killed. He tracks TWO pools:
+- corruption HP — the only pool the player may deplete
+- real HP — must remain untouched
+Player tools:
+- Sara's dash: dodge and strike the shadow chains (special
+  weak points) without hitting Pouria himself
+- Raha's slam: break the corruption armor around him
+- Aram's slow-motion: exposes his human side briefly
+Victory condition: reduce corruption HP to 0 without depleting
+his real HP.
+Fail-safe teaching rule: if the player uses lethal damage only,
+Pouria's real HP drops to 1 and he becomes INVULNERABLE until a
+non-lethal mechanic is used — teaching the mechanic without
+punishing.
 
 ==================================================
 53. CAMERA
@@ -1639,7 +1711,7 @@ Stone inscriptions: 45 authored total — 3 per chapter
 Act-opening inscriptions (chapters 1-1, 2-1, 3-1) anchor the
 act themes:
 1-1: "This is the forest of Midnight. The moon was stolen..."
-2-1: "Sara found a trace of her brother, Kian."
+2-1: "Sara found a trace of her brother, Pouria."
 3-1: "The castle of shadows. Where the moon is imprisoned."
 
 Flashbacks: 15 authored total — 1 per chapter.
@@ -1653,14 +1725,17 @@ Authored selection on switch. Never randomized.
 Chapter-complete texts: 15 authored total — 1 per chapter
 (chapter.completeText on the completion screen).
 
-KIAN FORESHADOWING (amended canon, §4):
-- Act 1, chapter 1-4: Sara finds Kian's torn scarf
-- Act 2, chapter 2-3: distant glimpse of a prisoner in a cage —
-  unreachable
-- Act 3, chapter 3-4: full encounter — Kian, half-human,
-  half-Shadow
-- Chapter 3-5: the choice — free him (he dies; the prison
-  weakens) or leave him (the moon stays imprisoned)
+POURIA TRACK (amended canon, §4/§52.2):
+- Act 1, chapter 1-4: Sara finds Pouria's torn scarf — hint only
+- Act 2, chapter 2-3: glimpse through the bars —
+  half-transformed; Sara recognizes him but cannot reach him
+- Act 2, chapter 2-5: FIRST FIGHT — he attacks, does not
+  recognize Sara; she must flee (cannot kill him)
+- Act 3, chapter 3-1: Sara fears the next encounter
+- Act 3, chapter 3-4: FINAL FIGHT — full corruption;
+  non-lethal mechanics (§52.2)
+- Chapter 3-5: the choice (§52) and the resolution with the
+  Queen of Light
 
 UNLOCK STORY EVENTS (amended, §4/§20):
 - 1-2: Sara and Raha fight first (a misunderstanding), then
@@ -2438,17 +2513,19 @@ Phase 10: hit-stop; shake; dust; dash trail; cooldown ring; damage flash; hit pa
 
 Phase 11:
 - Milestone A: inscriptions (45); flashback (15); NPC (15) —
-  including Kian-foreshadowing texts and the three unlock-event
-  cinematics (§67)
+  including Pouria-track texts (scarf 1-4, glimpse 2-3, fear
+  beat 3-1) and the three unlock-event cinematics (§67)
 - Milestone B: 15 chapter checkpoints; respawn rules
 - Milestone C: adaptive difficulty (per act)
 
 Phase 12:
-- Milestone A: author chapters 1-4 .. 2-5 (Act 1 completion + Act 2)
-- Milestone B: author chapters 3-1 .. 3-4 (Act 3; Kian's full
-  encounter in 3-4)
-- Milestone C: author chapter 3-5; final battle (Queen of Light);
-  Kian's choice; the moon rise; moon gate
+- Milestone A: author chapters 1-4 .. 2-5 (Act 1 completion +
+  Act 2; Pouria's first fight in 2-5 — escape, §52.2)
+- Milestone B: author chapters 3-1 .. 3-4 (Act 3; Pouria's
+  final non-lethal fight in 3-4, §52.2)
+- Milestone C: author chapter 3-5; final battle (Queen of
+  Light, three-phase); the choice (§52); the moon rise; moon
+  gate
 
 Phase 13: rewards; rank; pause menu; heart containers; health pickups; clear-record flow; three ending triggers + victory ending cards (§52, §62, §65)
 Phase 14: final acceptance; regression; manual test checklist; GitHub Pages deployment; multi-touch verification; README verification
