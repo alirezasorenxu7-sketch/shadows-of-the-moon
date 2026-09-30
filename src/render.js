@@ -20,13 +20,21 @@
 // silhouette), gothic castle silhouette with sharp spires and flickering
 // orange windows (layer 3) with the glow behind its spires, silhouetted
 // trees + ruined pillars (layer 4), the world itself at global ZOOM 1.25
-// (§7/§53 — platforms with edge shadows, procedural Sara §18.1 with §57
-// squash/stretch scaled to the x1.3 silhouette, Patroller §30; Raha/Aram
-// placeholder until Phase 7), foreground grass (layer 5), then bottom fog +
-// dark vignette atmosphere. The camera state (§53) lives on the game object
-// and is only READ here — rendering never moves it. All layer art is
-// authored rects, built once at module init (deterministic formulas, no
-// Math.random §72, zero per-frame allocation §78).
+// (§7/§53 — platforms with edge shadows, the full roster §18.1–§18.3 with
+// §57 squash/stretch, drop shadow and the 1px silhouette outline, Patroller
+// §30, §21 projectiles, §50 gates, §57 particle/ring FX), foreground grass
+// (layer 5), then bottom fog + dark vignette atmosphere. The camera state
+// (§53) lives on the game object and is only READ here — rendering never
+// moves it. All layer art is authored rects, built once at module init
+// (deterministic formulas, no Math.random §72, zero per-frame allocation
+// §78).
+//
+// Phase 7 roster art (§18.2/§18.3): Raha — broad armored warrior (pauldrons,
+// chest plate, gauntlets over a red tunic, helm + warrior braid, long scarf,
+// cheek scar); Aram — slim shadow sorceress (purple robe with trim + sleeve
+// runes, silver-white hair, floating pulsing orb, glowing pupils). Every
+// character renders through the same two-pass §57 silhouette outline and
+// the soft ellipse drop shadow.
 import {
   LOGICAL_W,
   LOGICAL_H,
@@ -55,6 +63,8 @@ import {
   PARALLAX_TREES,
   PARALLAX_GRASS,
   SARA_PALETTE,
+  RAHA_PALETTE,
+  ARAM_PALETTE,
   CHAR_ART_SCALE,
   ENEMY_ARMOR,
   ENEMY_CLOTH,
@@ -180,6 +190,49 @@ const GRASS_PERIOD = 360;
 
 
 // ---------------------------------------------------------------------------
+// §57 amended presentation primitives: silhouette outline + drop shadow.
+// ---------------------------------------------------------------------------
+// 1px dark outline around the character silhouette, implemented as a
+// TWO-PASS draw: pass 1 re-renders every part rect EXPANDED by 1px in the
+// outline tone (OUTLINE_PASS), pass 2 renders the normal art on top. All
+// character part drawing routes through part() so the outline always wraps
+// the FULL silhouette, whatever the pose.
+const SILHOUETTE = '#060810';
+let OUTLINE_PASS = false;
+
+function part(ctx, x, y, w, h) {
+  if (OUTLINE_PASS) {
+    ctx.fillStyle = SILHOUETTE;
+    ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  } else {
+    ctx.fillRect(x, y, w, h);
+  }
+}
+
+// §57 amended: soft ellipse drop shadow under the ACTIVE character
+// (alpha 0.3, +2px below the surface). Cast down from the feet-center to
+// the topmost solid below (deterministic scan of the ACTIVE collision
+// view — a dispelled gate or broken platform no longer receives shadow);
+// the ellipse contracts as the character rises. Presentation only.
+function drawDropShadow(ctx, player, level) {
+  const cx = player.x + player.w / 2;
+  const feet = player.y + player.h;
+  let surface = -1;
+  const solids = level.platforms;
+  for (let i = 0; i < solids.length; i += 1) {
+    const p = solids[i];
+    if (cx >= p.x && cx <= p.x + p.w && p.y >= feet - 1
+        && (surface === -1 || p.y < surface)) surface = p.y;
+  }
+  if (surface === -1 || surface - feet > 220) return;   // no ground nearby
+  const k = 1 - Math.min(1, (surface - feet) / 220) * 0.6;
+  ctx.fillStyle = 'rgba(3,5,10,0.3)';                    // §57 alpha 0.3
+  ctx.beginPath();
+  ctx.ellipse(cx, surface + 2, player.w * 0.42 * k, 4.5 * k, 0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ---------------------------------------------------------------------------
 // Sara procedural character (SPEC §18.1, §57) — Phase 3
 // ---------------------------------------------------------------------------
 // Local space: origin at the feet-center anchor, +x = facing direction,
@@ -246,10 +299,10 @@ function computeSaraPose(player) {
 // whose sole lands at -lift. `x` is the leg's ground-track position.
 function drawSaraLeg(ctx, x, lift) {
   ctx.fillStyle = SARA_PALETTE.cloak;
-  ctx.fillRect(x - 1, -16, 5, 10 - lift);        // leg shaft (hip → boot)
+  part(ctx, x - 1, -16, 5, 10 - lift);         // leg shaft (hip → boot)
   ctx.fillStyle = SARA_PALETTE.boots;
-  ctx.fillRect(x - 2, -6 - lift, 7, 6);          // boot
-  ctx.fillRect(x - 2, -3 - lift, 8, 3);          // toe cap (forward)
+  part(ctx, x - 2, -6 - lift, 7, 6);           // boot
+  part(ctx, x - 2, -3 - lift, 8, 3);           // toe cap (forward)
 }
 
 function drawSaraLegs(ctx) {
@@ -265,12 +318,12 @@ function drawSaraTorso(ctx) {
   const y0 = -32 + P.bob + P.crouch;             // shoulder line
   const y1 = -16 + P.crouch;                     // hip line
   ctx.fillStyle = SARA_PALETTE.cloak;
-  ctx.fillRect(-11 + P.lean * 0.5, y0 + 2, 7, y1 - y0 - 2);  // short cloak
+  part(ctx, -11 + P.lean * 0.5, y0 + 2, 7, y1 - y0 - 2);    // short cloak
   ctx.fillStyle = SARA_PALETTE.tunic;
-  ctx.fillRect(-4 + P.lean, y0, 11, y1 - y0);                // tunic body
-  ctx.fillRect(-6 + P.lean, y1 - 4, 15, 4);                  // skirt flare
+  part(ctx, -4 + P.lean, y0, 11, y1 - y0);                  // tunic body
+  part(ctx, -6 + P.lean, y1 - 4, 15, 4);                    // skirt flare
   ctx.fillStyle = SARA_PALETTE.cloak;
-  ctx.fillRect(-1 + P.lean, y0 + 2, 4, 6);                   // chest accent
+  part(ctx, -1 + P.lean, y0 + 2, 4, 6);                     // chest accent
 }
 
 // Face, eye on the facing side, hair cap, and three long swaying segments
@@ -280,17 +333,17 @@ function drawSaraHead(ctx, player) {
   const hx = 1 + P.lean;                         // head center x
   const hy = -38 + P.bob + P.crouch;             // head center y
   ctx.fillStyle = SARA_PALETTE.skin;
-  ctx.fillRect(hx - 4, hy - 5, 9, 10);           // face
+  part(ctx, hx - 4, hy - 5, 9, 10);              // face
   ctx.fillStyle = SARA_PALETTE.eye;
-  ctx.fillRect(hx + 2, hy - 2, 2, 3);            // eye (facing side)
+  part(ctx, hx + 2, hy - 2, 2, 3);               // eye (facing side)
   ctx.fillStyle = SARA_PALETTE.hair;
-  ctx.fillRect(hx - 5, hy - 7, 10, 4);           // top fringe
-  ctx.fillRect(hx - 6, hy - 5, 4, 8);            // back of the head
+  part(ctx, hx - 5, hy - 7, 10, 4);              // top fringe
+  part(ctx, hx - 6, hy - 5, 4, 8);               // back of the head
   for (let i = 0; i < 3; i += 1) {               // flowing back hair
     const sway = Math.sin(player.animTime * ANIM_HAIR_SWAY + i * 0.9) * 1.4;
     const trail = P.hairTrail * (i + 1) / 3;
     const rise = P.hairRise * (i + 1) / 3;
-    ctx.fillRect(hx - 7 + trail + sway, hy - 3 + i * 6 - rise, 5, 8);
+    part(ctx, hx - 7 + trail + sway, hy - 3 + i * 6 - rise, 5, 8);
   }
 }
 
@@ -301,18 +354,18 @@ function drawSaraArm(ctx, rootX, fwd, lift) {
   const sy = -30 + POSE.bob + POSE.crouch;       // shoulder height
   ctx.fillStyle = SARA_PALETTE.tunic;
   if (POSE.attack && rootX > 0) {                // front arm: knife thrust
-    ctx.fillRect(rootX, sy + 1, fwd, 4);         // extended sleeve
+    part(ctx, rootX, sy + 1, fwd, 4);            // extended sleeve
     ctx.fillStyle = SARA_PALETTE.skin;
-    ctx.fillRect(rootX + fwd, sy, 4, 4);         // hand
+    part(ctx, rootX + fwd, sy, 4, 4);            // hand
     ctx.fillStyle = STAR_TONE;
-    ctx.fillRect(rootX + fwd + 4, sy + 1, 6, 2); // knife blade
+    part(ctx, rootX + fwd + 4, sy + 1, 6, 2);    // knife blade
     return;
   }
-  ctx.fillRect(rootX, sy, 4, 6);                 // upper arm
+  part(ctx, rootX, sy, 4, 6);                   // upper arm
   const kx = rootX + fwd * 0.5;                  // elbow kink
-  ctx.fillRect(kx, sy + 5, 4, 5);                // forearm
+  part(ctx, kx, sy + 5, 4, 5);                   // forearm
   ctx.fillStyle = SARA_PALETTE.skin;
-  ctx.fillRect(kx, sy + 10 - Math.max(0, lift), 4, 3);   // hand
+  part(ctx, kx, sy + 10 - Math.max(0, lift), 4, 3);       // hand
 }
 
 function drawSara(ctx, player, game) {
@@ -337,6 +390,14 @@ function drawSara(ctx, player, game) {
   // CHAR_ART_SCALE (amended §18): the Phase-3 art was authored for the old
   // 48px-tall body; x1.3 matches it to the amended 62px hitbox silhouette.
   ctx.scale(sx * flip * CHAR_ART_SCALE, sy * CHAR_ART_SCALE);   // mirror + scale
+  // §57 amended silhouette outline: dark expanded pass UNDER the art.
+  OUTLINE_PASS = true;
+  drawSaraArm(ctx, -4, POSE.armBFwd, POSE.armBLift);   // back arm (behind)
+  drawSaraLegs(ctx);
+  drawSaraTorso(ctx);
+  drawSaraHead(ctx, player);
+  drawSaraArm(ctx, 4, POSE.armAFwd, POSE.armALift);    // front arm (over)
+  OUTLINE_PASS = false;
   drawSaraArm(ctx, -4, POSE.armBFwd, POSE.armBLift);   // back arm (behind)
   drawSaraLegs(ctx);
   drawSaraTorso(ctx);
@@ -346,13 +407,400 @@ function drawSara(ctx, player, game) {
 }
 
 // Placeholder marker for characters whose procedural art arrives in a later
-// phase (Raha/Aram, Phase 7): the character-colored hitbox.
+// phase: kept for dormant/unknown roster keys (never hit by the authored
+// trio — drawPlayer dispatches sara/raha/aram to their full §18 art).
 function drawPlayerPlaceholder(ctx, player) {
   const color = CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara;
   ctx.fillStyle = color;
   ctx.fillRect(player.x, player.y, player.w, player.h);
   ctx.fillStyle = 'rgba(232, 236, 255, 0.25)';
   ctx.fillRect(player.x, player.y, player.w, 3);
+}
+
+// ---------------------------------------------------------------------------
+// Raha procedural character (SPEC §18.2, §57) — Phase 7
+// ---------------------------------------------------------------------------
+// Broad and imposing female warrior: dark armor (pauldrons, chest plate,
+// gauntlets) worn over a red tunic, long red scarf, dark helm with the
+// warrior braid visible beneath, cheek scar, stern mouth. The silhouette
+// reads broad through horizontal pauldron span while the waist taper keeps
+// the feminine cue (§18.2). Poses: idle = chest rise/fall, attack = wide
+// arm swing (shockwave), special = airborne tuck (slam descent) or the
+// grounded pound crouch. Same local space + outline/scale contract as Sara.
+const RAHA_POSE = {
+  bob: 0, chest: 0, lean: 0, crouch: 0, tuck: 0, attack: false, pound: false,
+  legAFwd: 0, legALift: 0, legBFwd: 0, legBLift: 0,
+  armAFwd: 0, armALift: 0, armBFwd: 0, armBLift: 0,
+  scarfTrail: 0,
+};
+
+function computeRahaPose(player) {
+  const P = RAHA_POSE;
+  P.bob = 0; P.chest = 0; P.lean = 0; P.crouch = 0; P.tuck = 0;
+  P.attack = false; P.pound = false;
+  P.legAFwd = 0; P.legALift = 0; P.legBFwd = 0; P.legBLift = 0;
+  P.armAFwd = 0; P.armALift = 0; P.armBFwd = 0; P.armBLift = 0;
+  P.scarfTrail = -Math.min(Math.abs(player.vx) * 0.02, 7);
+
+  if ((player.attackAnimT || 0) > 0) {             // §18.2 wide arm swing
+    P.attack = true; P.lean = 4;
+    P.armAFwd = 13; P.armALift = -3; P.armBFwd = -10; P.armBLift = -2;
+    P.legAFwd = 5; P.legBFwd = -5;
+    return;
+  }
+  if ((player.specialAnimT || 0) > 0) {
+    if (player.slamActive) {                       // §18.2 airborne tuck
+      P.tuck = 1; P.lean = 2;
+      P.legALift = 9; P.legBLift = 7; P.legAFwd = 3; P.legBFwd = -2;
+      P.armAFwd = 3; P.armALift = 5; P.armBFwd = -3; P.armBLift = 4;
+    } else {                                        // grounded pound crouch
+      P.pound = true; P.crouch = 7; P.lean = 3;
+      P.armAFwd = 6; P.armALift = 6; P.armBFwd = -4; P.armBLift = 5;
+      P.legALift = 2; P.legBLift = 2;
+    }
+    return;
+  }
+
+  if (!player.onGround) {
+    if (player.vy < -60) {                         // rising: power lift
+      P.legAFwd = 5; P.legALift = 5; P.legBFwd = -4;
+      P.armAFwd = 5; P.armALift = -7; P.armBFwd = -5; P.armBLift = -5;
+    } else {                                       // heavy fall: wide, braced
+      P.legAFwd = 6; P.legALift = 2; P.legBFwd = -6; P.legBLift = 3;
+      P.armAFwd = 8; P.armALift = -5; P.armBFwd = -8; P.armBLift = -4;
+    }
+    return;
+  }
+
+  if (player.vx !== 0) {                           // pronounced run cycle
+    const s = Math.sin(player.runTime * ANIM_RUN_CYCLE);
+    P.lean = 3;
+    P.legAFwd = s * 10;  P.legALift = Math.max(0, s) * 6;
+    P.legBFwd = -s * 10; P.legBLift = Math.max(0, -s) * 6;
+    P.armAFwd = -s * 10; P.armALift = Math.max(0, -s) * 4;
+    P.armBFwd = s * 10;  P.armBLift = Math.max(0, s) * 4;
+    P.bob = Math.abs(s) * 1.2;
+  } else {                                         // idle: chest rise/fall
+    const br = Math.sin(player.animTime * ANIM_IDLE_SPEED * 0.8);
+    P.chest = br * 1.2;                            // torso breathes
+    P.bob = br * 0.6;
+  }
+}
+
+// One armored leg: greave shaft + heavy dark boot (broader than Sara's).
+function drawRahaLeg(ctx, x, lift) {
+  ctx.fillStyle = RAHA_PALETTE.armor;
+  part(ctx, x - 2, -17, 7, 10 - lift);           // greave shaft
+  ctx.fillStyle = RAHA_PALETTE.boots;
+  part(ctx, x - 3, -7 - lift, 9, 7);             // boot
+  part(ctx, x - 3, -3 - lift, 10, 3);            // toe cap
+}
+
+function drawRahaLegs(ctx) {
+  const P = RAHA_POSE;
+  drawRahaLeg(ctx, -3 + P.legBFwd, P.legBLift);        // back leg
+  drawRahaLeg(ctx, 3 + P.legAFwd, P.legALift);         // front leg
+}
+
+// Armored torso with the §18.2 waist taper: pauldrons span the shoulders,
+// the chest plate narrows to the waist, the hip flare widens again. The red
+// tunic shows at the midriff band and under the arms; the scarf roots at
+// the neck and flows behind (drawn as its own layer beneath the arms).
+function drawRahaTorso(ctx) {
+  const P = RAHA_POSE;
+  const y0 = -33 + P.bob + P.crouch - P.tuck * 2;      // shoulder line
+  const ym = -25 + P.bob * 0.5 + P.crouch;             // waist line
+  const y1 = -17 + P.crouch + P.tuck * 2;              // hip line
+  ctx.fillStyle = RAHA_PALETTE.tunic;
+  part(ctx, -8 + P.lean * 0.4, y0, 15, y1 - y0);       // tunic under-armor
+  ctx.fillStyle = RAHA_PALETTE.armor;
+  part(ctx, -13 + P.lean * 0.4, y0 - 1, 8, 6);         // back pauldron
+  part(ctx, 5 + P.lean * 0.4, y0 - 1, 8, 6);           // front pauldron
+  part(ctx, -9 + P.lean * 0.5, y0 + 3, 17, ym - y0 - 3);   // chest plate
+  part(ctx, -7 + P.lean * 0.5, ym, 14, y1 - ym);           // waist taper
+  part(ctx, -9 + P.lean * 0.3, y1, 17, 4);             // hip flare fauld
+  ctx.fillStyle = RAHA_PALETTE.tunic;
+  part(ctx, -6 + P.lean * 0.3, y1 + 4, 12, 3);         // tunic skirt below fauld
+}
+
+// Head under the dark helm: stern face, two dark eyes, cheek scar, the
+// warrior braid escaping beneath the helm's back rim + a loose front strand.
+function drawRahaHead(ctx, player) {
+  const P = RAHA_POSE;
+  const hx = 1 + P.lean;
+  const hy = -40 + P.bob + P.crouch - P.tuck * 2;
+  ctx.fillStyle = RAHA_PALETTE.hair;
+  part(ctx, hx - 6, hy + 1, 4, 5);                     // hair under helm rim
+  const sway = Math.sin(player.animTime * ANIM_HAIR_SWAY) * 1.2;
+  part(ctx, hx - 4, hy + 2, 3, 3);                     // loose front strand
+  ctx.fillStyle = RAHA_PALETTE.skin;
+  part(ctx, hx - 4, hy - 4, 10, 10);                   // face
+  ctx.fillStyle = RAHA_PALETTE.eye;
+  part(ctx, hx - 2, hy - 1, 2, 2);                     // far eye
+  part(ctx, hx + 3, hy - 1, 2, 2);                     // near eye
+  ctx.fillStyle = RAHA_PALETTE.scar;
+  part(ctx, hx + 5, hy + 1, 1, 4);                     // cheek scar
+  ctx.fillStyle = RAHA_PALETTE.hair;
+  part(ctx, hx, hy + 6, 5, 1);                         // stern mouth
+  ctx.fillStyle = RAHA_PALETTE.armor;
+  part(ctx, hx - 6, hy - 8, 13, 5);                    // helm cap
+  part(ctx, hx - 6, hy - 3, 3, 6);                     // helm back rim
+  part(ctx, hx + 5, hy - 3, 2, 4);                     // nose guard
+  part(ctx, hx - 1, hy - 8, 3, 2);                     // helm crest ridge
+  // the warrior braid: two segments flowing down the back
+  ctx.fillStyle = RAHA_PALETTE.hair;
+  part(ctx, hx - 7 + P.scarfTrail * 0.5 + sway, hy + 4, 4, 7);
+  part(ctx, hx - 6 + P.scarfTrail + sway, hy + 11, 4, 6);
+}
+
+// Pauldron-capped arm: tunic sleeve, armored forearm gauntlet, gloved hand.
+function drawRahaArm(ctx, rootX, fwd, lift) {
+  const P = RAHA_POSE;
+  const sy = -32 + P.bob + P.crouch - P.tuck * 2;      // shoulder height
+  ctx.fillStyle = RAHA_PALETTE.armor;
+  part(ctx, rootX - 2, sy - 2, 8, 5);                  // pauldron cap
+  ctx.fillStyle = RAHA_PALETTE.tunic;
+  part(ctx, rootX, sy + 3, 5, 6);                      // upper sleeve
+  ctx.fillStyle = RAHA_PALETTE.armor;
+  const kx = rootX + fwd * 0.55;
+  part(ctx, kx, sy + 8, 6, 7);                         // gauntlet forearm
+  ctx.fillStyle = RAHA_PALETTE.skin;
+  part(ctx, kx + 1, sy + 15 - Math.max(0, lift), 4, 3); // hand
+}
+
+// The long red scarf (§18.2): three flowing segments behind the shoulders.
+function drawRahaScarf(ctx, player) {
+  const P = RAHA_POSE;
+  const sy = -33 + P.bob + P.crouch - P.tuck * 2;
+  ctx.fillStyle = RAHA_PALETTE.scarf;
+  for (let i = 0; i < 3; i += 1) {
+    const sway = Math.sin(player.animTime * ANIM_HAIR_SWAY + i * 1.1) * 1.8;
+    const trail = P.scarfTrail * (i + 1) / 3;
+    part(ctx, -10 + trail + sway + P.lean * 0.3, sy + 3 + i * 7, 5, 8);
+  }
+}
+
+function drawRaha(ctx, player, game) {
+  computeRahaPose(player);
+  let sx = 1;
+  let sy = 1;
+  const useJump = player.lastJumpAt > player.lastLandAt;
+  const stamp = useJump ? player.lastJumpAt : player.lastLandAt;
+  const t = game.gameTime - stamp;
+  if (stamp >= 0 && t >= 0 && t < SQUASH_DURATION) {
+    const f = (1 - t / SQUASH_DURATION) ** 2;
+    sy = 1 + ((useJump ? SQUASH_JUMP_Y : SQUASH_LAND_Y) - 1) * f;
+    sx = 1 + ((useJump ? SQUASH_JUMP_X : SQUASH_LAND_X) - 1) * f;
+  }
+  const flip = player.facing === 'left' ? -1 : 1;
+  ctx.save();
+  ctx.translate(player.x + player.w / 2, player.y + player.h);
+  ctx.scale(sx * flip * CHAR_ART_SCALE, sy * CHAR_ART_SCALE);
+  const drawArt = () => {
+    drawRahaArm(ctx, -6, RAHA_POSE.armBFwd, RAHA_POSE.armBLift);   // back arm
+    drawRahaScarf(ctx, player);                                    // scarf behind
+    drawRahaLegs(ctx);
+    drawRahaTorso(ctx);
+    drawRahaHead(ctx, player);
+    drawRahaArm(ctx, 6, RAHA_POSE.armAFwd, RAHA_POSE.armALift);    // front arm
+  };
+  OUTLINE_PASS = true;                             // §57 silhouette outline
+  drawArt();
+  OUTLINE_PASS = false;
+  drawArt();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Aram procedural character (SPEC §18.3, §57) — Phase 7
+// ---------------------------------------------------------------------------
+// Slim shadow sorceress: purple outer robe with trim and sleeve runes over
+// a dark inner robe, silver-white hair, a floating orb with pulsing glow,
+// glowing purple pupils, subtle smile. Poses: idle = subtle float, attack =
+// point forward + purple glow, special = outline pulse (§18.3). The orb is
+// drawn OUTSIDE the outline pass — it is light, not silhouette.
+const ARAM_POSE = {
+  float: 0, lean: 0, crouch: 0, attack: false, pulse: false,
+  legAFwd: 0, legALift: 0, legBFwd: 0, legBLift: 0,
+  armAFwd: 0, armALift: 0, armBFwd: 0, armBLift: 0,
+  robeFlare: 0, hairRise: 0, hairTrail: 0,
+};
+
+function computeAramPose(player) {
+  const P = ARAM_POSE;
+  P.float = 0; P.lean = 0; P.crouch = 0; P.attack = false; P.pulse = false;
+  P.legAFwd = 0; P.legALift = 0; P.legBFwd = 0; P.legBLift = 0;
+  P.armAFwd = 0; P.armALift = 0; P.armBFwd = 0; P.armBLift = 0;
+  P.robeFlare = 0;
+  P.hairRise = Math.max(-4, Math.min(6, player.vy * 0.008));
+  P.hairTrail = -Math.min(Math.abs(player.vx) * 0.015, 6);
+
+  if ((player.attackAnimT || 0) > 0) {             // point forward + glow
+    P.attack = true; P.lean = 3;
+    P.armAFwd = 14; P.armALift = 1; P.armBFwd = -4;
+    return;
+  }
+  if ((player.specialAnimT || 0) > 0) {            // outline pulse
+    P.pulse = true; P.crouch = 3; P.lean = 2;
+    P.armAFwd = 5; P.armALift = 3; P.armBFwd = -4; P.armBLift = 3;
+    return;
+  }
+
+  if (!player.onGround) {
+    if (player.vy < -60) {                         // rising: robe flares down
+      P.robeFlare = 2; P.legALift = 4; P.legAFwd = 3;
+      P.armAFwd = 4; P.armALift = -5; P.armBFwd = -5; P.armBLift = -3;
+    } else {                                       // falling: robe rises
+      P.robeFlare = -3; P.legAFwd = 4; P.legBFwd = -4; P.legBLift = 2;
+      P.armAFwd = 5; P.armALift = -4; P.armBFwd = -6; P.armBLift = -2;
+    }
+    return;
+  }
+
+  if (player.vx !== 0) {                           // gliding run
+    const s = Math.sin(player.runTime * ANIM_RUN_CYCLE);
+    P.lean = 2;
+    P.legAFwd = s * 7;  P.legALift = Math.max(0, s) * 4;
+    P.legBFwd = -s * 7; P.legBLift = Math.max(0, -s) * 4;
+    P.armAFwd = -s * 8; P.armALift = Math.max(0, -s) * 3;
+    P.armBFwd = s * 8;  P.armBLift = Math.max(0, s) * 3;
+  } else {                                         // idle: subtle float
+    P.float = Math.sin(player.animTime * ANIM_IDLE_SPEED * 0.7) * 1.6;
+  }
+}
+
+// The robe: slim shoulders widening to the hem, inner robe in the front
+// opening, hem + front trim, belt line. `flare` lifts/lowers the hem edge.
+function drawAramRobe(ctx) {
+  const P = ARAM_POSE;
+  const y0 = -33 + P.float + P.crouch;                 // shoulder line
+  const y1 = -4 + P.float + P.crouch + P.robeFlare;    // hem line
+  ctx.fillStyle = ARAM_PALETTE.inner;
+  part(ctx, -6 + P.lean * 0.3, y0 + 3, 12, y1 - y0 - 3);   // inner robe front
+  ctx.fillStyle = ARAM_PALETTE.robe;
+  part(ctx, -8 + P.lean * 0.4, y0, 6, y1 - y0);            // outer back panel
+  part(ctx, 2 + P.lean * 0.4, y0, 7, y1 - y0);             // outer front panel
+  part(ctx, -9 + P.lean * 0.2, y1 - 5, 19, 5);             // hem band
+  ctx.fillStyle = 'rgba(199,125,255,0.5)';                 // robe trim (light)
+  ctx.fillRect(-4 + P.lean * 0.4, y0 + 2, 2, y1 - y0 - 6);  // front trim line
+  ctx.fillRect(-9 + P.lean * 0.2, y1 - 2, 19, 2);           // hem trim
+  ctx.fillStyle = ARAM_PALETTE.robe;
+  part(ctx, -6 + P.lean * 0.3, -18 + P.crouch, 13, 3);      // belt line
+}
+
+// Feet peeking from the robe hem + the leg swing tracks.
+function drawAramLegs(ctx) {
+  const P = ARAM_POSE;
+  ctx.fillStyle = ARAM_PALETTE.inner;
+  part(ctx, -4 + P.legBFwd, -6 - P.legBLift, 5, 6);        // back foot
+  part(ctx, 1 + P.legAFwd, -6 - P.legALift, 5, 6);         // front foot
+}
+
+// Silver-white hair: cap + long flowing side strands; glowing purple
+// pupils; the subtle smile (§18.3 face).
+function drawAramHead(ctx, player) {
+  const P = ARAM_POSE;
+  const hx = 1 + P.lean;
+  const hy = -40 + P.float + P.crouch;
+  ctx.fillStyle = ARAM_PALETTE.hair;
+  part(ctx, hx - 6, hy - 7, 11, 4);                     // hair cap
+  part(ctx, hx - 7, hy - 5, 4, 9);                      // back of the head
+  for (let i = 0; i < 3; i += 1) {                      // flowing long hair
+    const sway = Math.sin(player.animTime * ANIM_HAIR_SWAY + i * 0.8) * 1.5;
+    const trail = P.hairTrail * (i + 1) / 3;
+    const rise = P.hairRise * (i + 1) / 3;
+    part(ctx, hx - 8 + trail + sway, hy - 2 + i * 7 - rise, 5, 9);
+  }
+  ctx.fillStyle = ARAM_PALETTE.skin;
+  part(ctx, hx - 4, hy - 3, 9, 9);                      // face
+  ctx.fillStyle = ARAM_PALETTE.inner;
+  part(ctx, hx - 2, hy, 2, 2);                          // far eye
+  part(ctx, hx + 3, hy, 2, 2);                          // near eye
+  ctx.fillStyle = ARAM_PALETTE.pupil;
+  ctx.fillRect(hx - 2, hy, 2, 2);                       // glowing pupils
+  ctx.fillRect(hx + 3, hy, 2, 2);                       // (light: no outline)
+  ctx.fillStyle = 'rgba(230,212,239,0.85)';
+  ctx.fillRect(hx, hy + 5, 4, 1);                       // subtle smile
+}
+
+// Sleeve with rune marks (§18.3: magic runes on the sleeves) + hand. The
+// attack pose glows at the fingertip.
+function drawAramArm(ctx, rootX, fwd, lift) {
+  const P = ARAM_POSE;
+  const sy = -31 + P.float + P.crouch;
+  ctx.fillStyle = ARAM_PALETTE.robe;
+  if (P.attack && rootX > 0) {                        // point forward + glow
+    part(ctx, rootX, sy + 1, fwd, 4);                 // extended sleeve
+    ctx.fillStyle = ARAM_PALETTE.skin;
+    part(ctx, rootX + fwd, sy, 3, 4);                 // hand
+    ctx.fillStyle = ARAM_PALETTE.orb;
+    ctx.fillRect(rootX + fwd + 3, sy, 4, 4);          // purple glow at fingertip
+    return;
+  }
+  part(ctx, rootX, sy, 4, 7);                         // upper sleeve
+  const kx = rootX + fwd * 0.5;
+  part(ctx, kx, sy + 6, 5, 6);                        // forearm sleeve
+  ctx.fillStyle = ARAM_PALETTE.pupil;                  // rune marks (light)
+  ctx.fillRect(kx + 1, sy + 7, 1, 1);
+  ctx.fillRect(kx + 3, sy + 9, 1, 1);
+  ctx.fillStyle = ARAM_PALETTE.skin;
+  part(ctx, kx, sy + 12 - Math.max(0, lift), 4, 3);   // hand
+}
+
+// The floating orb with its pulsing glow (§18.3) — drawn after the body,
+// bobbing on its own phase; two translucent halos pulse via animTime.
+function drawAramOrb(ctx, player) {
+  const P = ARAM_POSE;
+  const ox = 12 + P.lean;
+  const oy = -26 + Math.sin(player.animTime * ANIM_IDLE_SPEED) * 2 + P.crouch;
+  const pulse = 0.5 + Math.sin(player.animTime * 6) * 0.5;
+  ctx.fillStyle = 'rgba(199,125,255,' + (0.10 + pulse * 0.10).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.arc(ox, oy, 8 + pulse * 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(199,125,255,' + (0.22 + pulse * 0.18).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.arc(ox, oy, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = ARAM_PALETTE.orb;
+  ctx.beginPath();
+  ctx.arc(ox, oy, 3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawAram(ctx, player, game) {
+  computeAramPose(player);
+  let sx = 1;
+  let sy = 1;
+  const useJump = player.lastJumpAt > player.lastLandAt;
+  const stamp = useJump ? player.lastJumpAt : player.lastLandAt;
+  const t = game.gameTime - stamp;
+  if (stamp >= 0 && t >= 0 && t < SQUASH_DURATION) {
+    const f = (1 - t / SQUASH_DURATION) ** 2;
+    sy = 1 + ((useJump ? SQUASH_JUMP_Y : SQUASH_LAND_Y) - 1) * f;
+    sx = 1 + ((useJump ? SQUASH_JUMP_X : SQUASH_LAND_X) - 1) * f;
+  }
+  const flip = player.facing === 'left' ? -1 : 1;
+  ctx.save();
+  ctx.translate(player.x + player.w / 2, player.y + player.h);
+  ctx.scale(sx * flip * CHAR_ART_SCALE, sy * CHAR_ART_SCALE);
+  const drawArt = () => {
+    drawAramArm(ctx, -4, ARAM_POSE.armBFwd, ARAM_POSE.armBLift);  // back arm
+    drawAramRobe(ctx);
+    drawAramLegs(ctx);
+    drawAramHead(ctx, player);
+    drawAramArm(ctx, 4, ARAM_POSE.armAFwd, ARAM_POSE.armALift);   // front arm
+  };
+  OUTLINE_PASS = true;               // §57 silhouette outline
+  drawArt();
+  OUTLINE_PASS = false;
+  drawArt();
+  if (ARAM_POSE.pulse) {                           // §18.3 outline pulse
+    ctx.fillStyle = 'rgba(157,78,221,0.28)';
+    ctx.fillRect(-10, -46, 21, 46);
+  }
+  drawAramOrb(ctx, player);                        // light, above the outline
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +872,194 @@ function drawPatroller(ctx, e) {
     ctx.fillRect(-22, -66 + bob, 44, 66);
   }
   ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// World FX layers (SPEC §21, §50, §57) — Phase 7
+// ---------------------------------------------------------------------------
+// §21 projectiles. Sara's thrown knife: steel blade + bright edge streak.
+// Aram's magic shot: purple orb with a pulsing halo (no shadowBlur — §78
+// reserves it for enemy eyes). Both fly in world space, culled to the view.
+
+function drawProjectiles(ctx, projectiles, cam) {
+  for (let i = 0; i < projectiles.length; i += 1) {
+    const p = projectiles[i];
+    if (p.x + p.w < cam.x - 20 || p.x > cam.x + VIEW_W + 20) continue;
+    if (p.kind === 'knife') {
+      ctx.fillStyle = '#8fa3c8';
+      ctx.fillRect(p.x, p.y, 9, 3);                     // blade shaft
+      ctx.fillStyle = '#dfe8ff';
+      ctx.fillRect(p.x + (p.dir > 0 ? 7 : 0), p.y, 2, 3);   // leading edge
+      ctx.fillStyle = '#5a4030';
+      ctx.fillRect(p.x + (p.dir > 0 ? 0 : 7), p.y - 1, 2, 5); // hilt cross
+    } else {                                            // magic shot
+      const pulse = 0.5 + Math.sin((p.x + p.y) * 0.05) * 0.5;
+      ctx.fillStyle = 'rgba(199,125,255,' + (0.16 + pulse * 0.14).toFixed(3) + ')';
+      ctx.beginPath();
+      ctx.arc(p.x + 4, p.y + 4, 8 + pulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#c77dff';
+      ctx.beginPath();
+      ctx.arc(p.x + 4, p.y + 4, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#eee8ff';
+      ctx.fillRect(p.x + 3, p.y + 2, 2, 2);            // bright core
+    }
+  }
+}
+
+// §57 feedback particles: fading colored chips; §78-bounded on the game
+// state (never more than PARTICLE_CAP). Pure presentation.
+function drawParticles(ctx, particles, cam) {
+  const left = cam.x - 20;
+  const right = cam.x + VIEW_W + 20;
+  for (let i = 0; i < particles.length; i += 1) {
+    const p = particles[i];
+    if (p.x < left || p.x > right) continue;
+    const a = Math.max(0, p.life / p.maxLife);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// §24 shockwave/slam impact rings: expanding + fading circle strokes.
+function drawRings(ctx, rings, cam) {
+  for (let i = 0; i < rings.length; i += 1) {
+    const r = rings[i];
+    if (r.x + r.r < cam.x - 20 || r.x - r.r > cam.x + VIEW_W + 20) continue;
+    const k = r.t / r.T;                                // 0 → 1 expansion
+    ctx.strokeStyle = r.color;
+    ctx.globalAlpha = 1 - k;
+    ctx.lineWidth = 3 - k * 2;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r * (0.35 + 0.65 * k), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1;
+}
+
+// §50 environmental gates. Magic barrier (active): a translucent purple
+// wall with deterministic shimmering vertical bands + stone posts; once
+// dispelled it leaves nothing. Time-locked door (closed): a stone slab
+// with a frozen rune clock face; open: the slab is drawn swung aside as a
+// thin recessed edge, pocket passable.
+function drawGates(ctx, gates, cam, gameTime) {
+  for (let i = 0; i < gates.length; i += 1) {
+    const g = gates[i];
+    if (g.x + g.w < cam.x - 20 || g.x > cam.x + VIEW_W + 20) continue;
+    if (g.kind === 'magicBarrier') {
+      if (g.state !== 'active') continue;              // dispelled: gone
+      ctx.fillStyle = 'rgba(120,60,190,0.34)';         // wall body
+      ctx.fillRect(g.x, g.y, g.w, g.h);
+      for (let b = 0; b < 4; b += 1) {                 // shimmer bands
+        const off = Math.sin(gameTime * 2.2 + b * 1.7) * 2;
+        ctx.fillStyle = 'rgba(199,125,255,' + (0.22 + b * 0.05).toFixed(3) + ')';
+        ctx.fillRect(g.x + 1 + b * (g.w / 4) + off, g.y + 4, 3, g.h - 8);
+      }
+      ctx.fillStyle = '#c77dff';                       // top/bottom anchor runes
+      ctx.fillRect(g.x - 1, g.y - 3, g.w + 2, 3);
+      ctx.fillRect(g.x - 1, g.y + g.h, g.w + 2, 3);
+    } else if (g.kind === 'timeDoor') {
+      if (g.state === 'open') {                        // swung-aside slab
+        ctx.fillStyle = '#2a2f3a';
+        ctx.fillRect(g.x, g.y, 5, g.h);
+        ctx.fillStyle = '#1a1e28';
+        ctx.fillRect(g.x + g.w - 5, g.y, 5, g.h);
+        continue;
+      }
+      ctx.fillStyle = '#2a2f3a';                       // stone slab
+      ctx.fillRect(g.x, g.y, g.w, g.h);
+      ctx.fillStyle = '#3a4050';
+      ctx.fillRect(g.x + 2, g.y + 2, g.w - 4, 6);      // lintel band
+      ctx.fillRect(g.x + 2, g.y + g.h - 8, g.w - 4, 6);
+      // the frozen rune clock: ring + hands locked mid-tick (deterministic)
+      const cx = g.x + g.w / 2;
+      const cy = g.y + g.h / 2;
+      ctx.strokeStyle = '#c77dff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();                                  // frozen hands
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + 5, cy - 3);
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - 2, cy + 5);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.fillStyle = '#c77dff';
+      ctx.fillRect(cx - 1, cy - 1, 2, 2);              // heart of the lock
+    }
+  }
+}
+
+// §23/§18.1 dash afterimages: the trail records hold recent dash positions;
+// each renders as a character-colored silhouette fading 0.4 → 0.
+function drawDashTrail(ctx, player, game) {
+  const trail = player.trail;
+  if (!trail || trail.length === 0 || player.dashT <= 0) return;
+  const color = CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara;
+  for (let i = 0; i < trail.length; i += 1) {
+    const age = game.gameTime - trail[i].t;
+    const a = Math.max(0, 0.4 * (1 - age / 0.25));      // 0.4 → 0 over 0.25 s
+    if (a <= 0) continue;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = color;
+    ctx.fillRect(trail[i].x, trail[i].y, player.w, player.h);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// §25.2 Shield aura: two translucent circles around the active character
+// while the shield holds (light — never outlined, never a gameplay body).
+function drawShieldAura(ctx, player, game) {
+  if (player.shieldT <= 0) return;
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const pulse = 0.5 + Math.sin(game.gameTime * 9) * 0.5;
+  ctx.strokeStyle = 'rgba(199,125,255,' + (0.5 + pulse * 0.3).toFixed(3) + ')';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, player.w * 0.85, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(238,232,255,' + (0.18 + pulse * 0.14).toFixed(3) + ')';
+  ctx.beginPath();
+  ctx.arc(cx, cy, player.w * 0.85 + 4 + pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+}
+
+// §25.1 slow-motion cue: a faint purple time-sheen over the screen while
+// the time domain is shifted. Presentation only — no gameplay effect.
+function drawSlowMoTint(ctx) {
+  ctx.fillStyle = 'rgba(157,78,221,0.07)';
+  ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+}
+
+// §20.2 unlock tutorials: 3-5 s NON-BLOCKING hints — a translucent plate
+// bottom-center that fades out over the final 0.5 s. Gameplay never pauses.
+function drawTutorial(ctx, game) {
+  const tut = game.tutorial;
+  if (!tut) return;
+  const remain = tut.until - game.gameTime;
+  if (remain <= 0) return;
+  const a = Math.min(1, remain / 0.5);                 // fade-out tail
+  ctx.globalAlpha = a;
+  ctx.fillStyle = 'rgba(6,8,16,0.72)';
+  const tw = 560;
+  ctx.fillRect((LOGICAL_W - tw) / 2, 632, tw, 40);
+  ctx.fillStyle = 'rgba(199,125,255,0.55)';
+  ctx.fillRect((LOGICAL_W - tw) / 2, 632, tw, 2);
+  ctx.fillRect((LOGICAL_W - tw) / 2, 670, tw, 2);
+  ctx.fillStyle = '#e6d4ef';
+  ctx.font = 'bold 17px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(tut.text, LOGICAL_W / 2, 658);
+  ctx.textAlign = 'left';
+  ctx.globalAlpha = 1;
 }
 
 export function createRenderer(canvas) {
@@ -658,15 +1294,18 @@ export function createRenderer(canvas) {
     ctx.fillRect(0, 500, LOGICAL_W, 120);
   }
 
-  function drawPlatforms(platforms, cam) {
+  function drawPlatforms(platforms, cam, brokenIds) {
     // Geometry rendering (§55 platform tones + amended edge treatment).
     // Render-only culling against the ZOOMED camera view (§42/§78): the
-    // visible world window is VIEW_W wide (§7/§53).
+    // visible world window is VIEW_W wide (§7/§53). Source is the STATIC
+    // geometry list; breakables broken this run are skipped (their absence
+    // from the active collision view IS the §24/§50 gate mechanic).
     const left = cam.x - 8;
     const right = cam.x + VIEW_W + 8;
     for (let i = 0; i < platforms.length; i += 1) {
       const p = platforms[i];
       if (p.x + p.w < left || p.x > right) continue;
+      if (p.breakable && brokenIds && brokenIds.has(p.id)) continue;
       ctx.fillStyle = GROUND_FILL;
       ctx.fillRect(p.x, p.y, p.w, p.h);
       ctx.fillStyle = GROUND_EDGE;
@@ -694,16 +1333,26 @@ export function createRenderer(canvas) {
     }
   }
 
-  function drawPlayer(game, player, cam) {
+  function drawPlayer(game, player, level) {
     // Render-only culling (§78): never draw what the camera cannot see;
     // gameplay entities are NOT removed, merely skipped in presentation.
-    if (player.x + player.w < cam.x - 20 || player.x > cam.x + VIEW_W + 20) return;
+    if (player.x + player.w < game.camera.x - 20
+        || player.x > game.camera.x + VIEW_W + 20) return;
+    // §57 amended: soft ellipse drop shadow under the active character
+    // (before the sprite, so the character stands ON the shadow).
+    drawDropShadow(ctx, player, level);
+    // §23 dash afterimages trail behind the active sprite.
+    drawDashTrail(ctx, player, game);
     // §22: the sprite flashes ~20 Hz while invulnerable.
     const blink = player.invuln > 0 && Math.floor(game.gameTime * 20) % 2 === 0;
     if (blink) ctx.globalAlpha = 0.35;
     if (player.character === 'sara') drawSara(ctx, player, game);
+    else if (player.character === 'raha') drawRaha(ctx, player, game);
+    else if (player.character === 'aram') drawAram(ctx, player, game);
     else drawPlayerPlaceholder(ctx, player);
     if (blink) ctx.globalAlpha = 1;
+    // §25.2 Shield aura wraps the sprite while active.
+    drawShieldAura(ctx, player, game);
   }
 
   // ---- §55 layer 5: foreground grass (fastest layer, screen-bottom anchor)
@@ -768,8 +1417,24 @@ export function createRenderer(canvas) {
   // (§7/§53) — ctx.scale(ZOOM) then translate by the camera position — so
   // the visible gameplay window is VIEW_W x VIEW_H world units; each
   // parallax layer offsets by cam * its factor in logical canvas space.
+  // Phase 7 adds the §54 screen-shake offset (deterministic decaying
+  // oscillation — presentation only, never fed back into gameplay) and the
+  // world FX layers (gates under entities, projectiles/particles above).
   function render(game, level, player, enemies) {
     const cam = game.camera;
+    // §54: offset = mag * exp(-30 * age) * oscillation — the 30/s decay
+    // envelope bounds every shake well inside its authored duration.
+    let shakeX = 0;
+    let shakeY = 0;
+    if (game.shake) {
+      const s = game.shake;
+      const age = s.T - s.t;
+      const env = Math.exp(-30 * age);
+      shakeX = Math.sin(age * 63) * s.mag * env;
+      shakeY = Math.cos(age * 81) * s.mag * env * 0.7;
+    }
+    ctx.save();
+    ctx.translate(shakeX, shakeY);
     drawSky();
     drawStars(cam, game.gameTime);
     drawClouds(cam);
@@ -780,12 +1445,19 @@ export function createRenderer(canvas) {
     ctx.save();
     ctx.scale(ZOOM, ZOOM);                             // §7/§53: global ZOOM 1.25
     ctx.translate(-cam.x, -cam.y);                     // world space (§53)
-    drawPlatforms(level.platforms, cam);
+    drawPlatforms(level.allPlatforms, cam, game.brokenPlatformIds);
+    drawGates(ctx, level.gates, cam, game.gameTime);   // §50 gates
+    drawRings(ctx, game.rings, cam);                   // §24 impact rings
     drawEnemies(enemies || [], cam);
-    drawPlayer(game, player, cam);
+    drawPlayer(game, player, level);
+    drawProjectiles(ctx, game.projectiles, cam);       // §21 knives + magic
+    drawParticles(ctx, game.particles, cam);           // §57 feedback chips
     ctx.restore();
     drawGrass(cam);
+    if (game.slowMoActive) drawSlowMoTint(ctx);        // §25.1 time-sheen
+    ctx.restore();                                     // end §54 shake frame
     drawFog();
+    drawTutorial(ctx, game);                           // §20.2 non-blocking hint
     drawVignette();
   }
 

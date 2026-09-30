@@ -197,3 +197,79 @@ export const ANIM_RUN_CYCLE = 13.0;   // run leg-cycle rate, rad/s
 export const ANIM_HAIR_RISE = 0.010;  // hair rise per px/s of fall speed
 export const ANIM_HAIR_TRAIL = 0.020; // hair back-sweep per px/s of run speed
 export const ANIM_ENEMY_WALK = 7.0;   // enemy walk-cycle rate, rad/s (§31 walk state)
+
+// ---- abilities (SPEC §21, §23–§25 — Phase 7) -------------------------------
+// Cooldowns/durations/radii the SPEC pins are locked here; speeds and ranges
+// the SPEC leaves open are authored deterministic defaults (§98 tweakable).
+export const KNIFE_COOLDOWN = 0.30;         // Sara J, seconds (§23)
+export const KNIFE_SPEED = 760;             // authored knife projectile speed, px/s
+export const KNIFE_RANGE = 520;             // authored knife flight range, px
+export const DASH_DURATION = 0.22;          // Sara K tap duration, seconds (§23)
+export const DASH_COOLDOWN = 1.4;           // Sara K cooldown, seconds (§23)
+export const DASH_SPEED = 900;              // authored dash speed, px/s
+export const DASH_DAMAGE = 1;               // §21 dash-through, once per enemy per dash
+export const SHOCKWAVE_COOLDOWN = 0.55;     // Raha J, seconds (§24)
+export const SHOCKWAVE_RADIUS = 120;        // authored radial range, px
+export const SHOCKWAVE_DAMAGE = 1;          // §21
+export const SLAM_COOLDOWN = 1.8;           // Raha K, seconds (§24)
+export const SLAM_RADIUS = 90;              // §24 impact radius, px
+export const SLAM_DAMAGE = 2;               // §21 slam impact
+export const SLAM_FALL_KICK = 420;          // authored fast-fall entry velocity, px/s
+export const SLAM_GRAVITY_MULT = 2.2;       // authored fast-fall gravity multiplier
+export const MAGIC_COOLDOWN = 0.36;         // Aram J, seconds (§25.3)
+export const MAGIC_SPEED = 560;             // authored magic shot speed, px/s
+export const MAGIC_RANGE = 620;             // authored magic flight range, px
+export const SLOWMO_DURATION = 3.0;         // §25.1
+export const SLOWMO_COOLDOWN = 3.5;         // §25.1
+export const SHIELD_DURATION = 1.4;         // §25.2
+export const SHIELD_COOLDOWN = 2.5;         // §25.2
+export const SPECIAL_THRESHOLD = 0.3;       // §25 K tap/hold threshold, sim seconds
+export const ATTACK_ANIM_T = 0.18;          // presentation: attack pose duration, s
+export const SPECIAL_ANIM_T = 0.22;         // presentation: special pose duration, s
+
+// ---- character switching (SPEC §20, §20.1 — Phase 7) ------------------------
+export const SWITCH_INVULN_FLOOR = 0.35;    // §20: max(existing, 0.35) on switch
+export const SWITCH_COMBO_WINDOW = 1.5;     // §20.1: switch-within window, seconds
+// §20.1 combos are timed modifiers on the INCOMING ability; the modifier
+// window re-arms for the same 1.5 s measured from the SWITCH itself.
+export const COMBO_SLAM_MULT = 3;           // Sara dash -> Raha slam: x3 damage
+export const COMBO_SLOWMO_MULT = 2;         // Raha slam -> Aram slow-mo: x2 duration
+
+// ---- progressive unlock + tutorials (SPEC §20, §20.2 — Phase 7) -------------
+export const UNLOCK_CHAPTERS = Object.freeze({ raha: '1-3', aram: '1-5' });
+export const TUTORIAL_DURATION = 4.0;       // §20.2: 3-5 s non-blocking hint
+
+// ---- projectiles + gates (SPEC §21, §50 — Phase 7) ---------------------------
+export const GATE_OPEN_RANGE = 260;         // authored time-door open proximity, px
+
+// ---- screen shake (SPEC §54 — magnitudes; Phase 7 wires the state) ----------
+export const SHAKE_SMALL_PX = 4;
+export const SHAKE_SMALL_T = 0.1;
+export const SHAKE_LARGE_PX = 12;
+export const SHAKE_LARGE_T = 0.25;
+export const SHAKE_DECAY = 30;              // §54: decay rate, dt * 30
+
+// ---- particles (SPEC §57, §78 — minimal Phase 7 feedback system) -------------
+export const PARTICLE_CAP = 400;            // §78 hard cap, amended from 200
+
+// ---- Raha rendering (SPEC §18.2 — locked appearance colors) -----------------
+export const RAHA_PALETTE = Object.freeze({
+  armor: '#2a2a2a',      // dark armor: pauldrons, chest plate, gauntlets
+  tunic: '#e63946',      // red tunic worn under the armor
+  scarf: '#8a1f2a',      // long red scarf
+  hair: '#241812',       // dark hair, high warrior braid
+  boots: '#1a0d0d',      // dark boots
+  skin: '#d9b59a',       // render-authored moonlit skin
+  eye: '#0a0d14',        // render-authored dark eyes
+  scar: '#7a3a30',       // render-authored cheek scar
+});
+
+// ---- Aram rendering (SPEC §18.3 — locked appearance colors) -----------------
+export const ARAM_PALETTE = Object.freeze({
+  robe: '#9d4edd',       // outer robe with trim
+  inner: '#1a1030',      // inner robe
+  hair: '#eee8ff',       // silver-white hair
+  orb: '#c77dff',        // floating orb with pulsing glow
+  skin: '#e6d4ef',       // render-authored moonlit skin
+  pupil: '#c77dff',      // glowing purple pupils
+});
