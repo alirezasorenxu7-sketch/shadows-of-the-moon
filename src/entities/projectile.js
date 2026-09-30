@@ -106,7 +106,7 @@ export function updateProjectiles(game, projectiles, enemies, level, dt) {
       // §29.1: Armored absorbs Aram magic (0 damage); every other impact
       // applies the projectile's authored damage through the organic path.
       if (!(p.kind === 'magic' && hitEnemy.type === 'armored')) {
-        damageEnemy(game, hitEnemy, p.dmg, false);
+        damageEnemy(game, hitEnemy, p.dmg, false, p.kind);
       }
       spawnBurst(game, p.x, p.y, p.kind === 'magic' ? '#c77dff' : '#cfd8ff', 6);
       projectiles.splice(i, 1);

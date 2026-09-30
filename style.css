@@ -255,6 +255,34 @@ body {
   outline-offset: 2px;
 }
 
+/* §52 The Choice: stacked options with hint lines + 1/2/3 key chips. */
+#choice-overlay { gap: 12px; }
+.choice-opt.hidden { display: none; }
+.choice-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 560px;
+  padding: 12px 30px !important;
+}
+.choice-opt small {
+  font: 400 12.5px system-ui, sans-serif;
+  letter-spacing: 0.02em;
+  color: #8b93c9;
+}
+.choice-opt .co-key {
+  display: inline-block;
+  min-width: 22px;
+  margin-right: 10px;
+  padding: 1px 6px;
+  font: 700 13px system-ui, sans-serif;
+  color: #d8b96a;
+  border: 1px solid rgba(216, 185, 106, 0.55);
+  border-radius: 6px;
+}
+
+
 .guide {
   display: flex;
   flex-direction: column;

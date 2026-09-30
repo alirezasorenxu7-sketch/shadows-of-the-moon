@@ -45,6 +45,10 @@ import {
   LEVEL_COMPLETION_SCORE,
   SHAKE_MODES,
   ADAPTIVE_DEATH_THRESHOLD,
+  MOON_RISE_DURATION,
+  MOON_GATE_R,
+  MOON_GATE_TOUCH_MARGIN,
+  TRUE_ENDING_NPCS,
 } from './constants.js';
 import { createInput } from './input.js';
 import './physics.js';
@@ -52,7 +56,7 @@ import './ai.js';
 import { LEVEL_DATA, buildLevel } from './level.js';
 import { createRenderer } from './render.js';
 import { createLoop } from './loop.js';
-import { createPlayer, updatePlayer, switchCharacter, playerSnapshot, resetPlayer, respawnPlayer } from './entities/player.js';
+import { createPlayer, updatePlayer, switchCharacter, playerSnapshot, resetPlayer, respawnPlayer, circleHitsAABB } from './entities/player.js';
 import { createEnemies, updateEnemies, damageEnemy, enemiesSnapshot, resetChapterEnemies } from './entities/enemy.js';
 import { updateProjectiles, projectilesSnapshot } from './entities/projectile.js';
 import { updateParticles, spawnBurst, particlesSnapshot } from './entities/particle.js';
@@ -61,6 +65,7 @@ import { createCollectibles, updateCollectibles, collectiblesSnapshot } from './
 import { readSave, writeSave, computeRank, seedUnlockedCharacters } from './save.js';
 import {
   createStoryState, updateStory, showSwitchQuip, showUnlockCinematic,
+  showChapterComplete, showChoiceCinematic, CHOICE_OPTIONS,
 } from './story.js';
 
 const canvas = document.getElementById('game');
@@ -88,6 +93,15 @@ const game = {
   respawnCount: 0,          // §74 instrumentation: §45 respawns this run
   // ---- §67/§68 environmental storytelling (Phase 11) ----
   story: createStoryState(),
+  // ---- Phase 12 finale (§52/§52.2) ----
+  queenDefeated: false,
+  choiceDelay: 0,            // s beat after the Queen falls
+  choiceActive: false,       // choice overlay up (sim paused)
+  choiceMade: null,          // 'free' | 'leave' | 'sacrifice'
+  moonRiseT: 0,              // s since the choice
+  moonGate: null,            // {x, y, r, state}
+  pouriaEscaped: false,      // 2-5
+  pouriaSpared: false,       // 3-4
   camera: { x: 0, y: 0 },   // view center-top anchor, world px (§53, Phase 4)
   // ---- Phase 6 run-state authorities ----
   defeatedEnemyIds: new Set(),  // §28: kill score uniqueness; reset only on new run
@@ -184,6 +198,16 @@ function snapCamera() {
 }
 
 const level = buildLevel(LEVEL_DATA);
+// §52 moon gate: closed while the Queen lives; opens after the choice.
+const FINAL_CHAPTER = level.chapters[level.chapters.length - 1];
+if (FINAL_CHAPTER.finalBattle) {
+  game.moonGate = {
+    x: FINAL_CHAPTER.finalBattle.gateX,
+    y: FINAL_CHAPTER.finalBattle.gateY,
+    r: MOON_GATE_R,
+    state: 'closed',
+  };
+}
 const player = createPlayer(level);   // a new run starts with Sara (§47)
 const enemies = createEnemies(level, game.defeatedEnemyIds);   // §28/§6
 const collectibles = createCollectibles(level, game);          // §48/§58 (Phase 9)
@@ -339,6 +363,9 @@ function handleChapterTransition(prevId, next) {
     respawnX: next.checkpoint.respawn.x,
     respawnY: next.checkpoint.respawn.y,
   };
+  // §50/§67 chapter endings: the furthest completed chapter shows its
+  // non-blocking completion plate (completeText) on the forward crossing.
+  showChapterComplete(game, level.chapters[nextIdx - 1]);
   writeSave(game, 'chapter');
 }
 
@@ -382,6 +409,15 @@ function startRun() {
   game.adaptiveActs = new Set();
   game.respawnCount = 0;
   game.story = createStoryState();     // §67: flashbacks/NPCs re-arm per run
+  // ---- Phase 12 finale reset (§47): the §52 chain re-arms ----
+  game.queenDefeated = false;
+  game.choiceDelay = 0;
+  game.choiceActive = false;
+  game.choiceMade = null;
+  game.moonRiseT = 0;
+  game.pouriaEscaped = false;
+  game.pouriaSpared = false;
+  if (game.moonGate) game.moonGate.state = 'closed';
   game.lastRank = null;
   game.runCompletedChapters = [];      // §63: progress is run-scoped
   game.runFurthestChapterId = '1-1';
@@ -457,6 +493,61 @@ function completeLevel() {
   updateOverlays();
   updateSelectorUI(true);
   return true;
+}
+
+// ---- §52 the choice + moon rise + moon gate (third option = true-ending
+// path only: 3 crystals + NPCs §62) ----
+function trueEndingPathOpen() {
+  return game.collectedCrystalIds.size >= 3
+    && Object.keys(game.story.npcDone).length >= TRUE_ENDING_NPCS;
+}
+
+function startChoice() {
+  game.choiceActive = true;
+  loop.enterPause('choice');
+  const third = document.getElementById('btn-choice-sacrifice');
+  if (third) third.classList.toggle('hidden', !trueEndingPathOpen());
+  updateOverlays();
+}
+
+function makeChoice(key) {
+  if (!game.choiceActive || game.choiceMade) return;
+  let option = null;
+  for (let i = 0; i < CHOICE_OPTIONS.length; i += 1) {
+    if (CHOICE_OPTIONS[i].key === key) option = CHOICE_OPTIONS[i];
+  }
+  if (!option) return;
+  if (option.key === 'sacrifice' && !trueEndingPathOpen()) return;   // §52
+  game.choiceMade = key;
+  game.choiceActive = false;
+  game.moonRiseT = 0.0001;             // §55: the moon begins to rise
+  loop.requestResume();                 // §8.4: the choice click IS the explicit resume
+  input.drainEvents();                  // flush edges buffered during the pause
+  showChoiceCinematic(game, option);
+  updateOverlays();
+}
+
+// §52 finale state machine — one player-domain step inside the fixed loop.
+function updateFinale(dt) {
+  if (game.queenDefeated && !game.choiceMade) {
+    game.choiceDelay -= dt;
+    if (game.choiceDelay <= 0 && !game.choiceActive) startChoice();
+  }
+  if (game.choiceMade) {
+    game.moonRiseT += dt;               // §55: the moon RISES — the payoff
+    if (game.moonGate && game.moonGate.state === 'closed'
+        && game.moonRiseT >= MOON_RISE_DURATION) {
+      game.moonGate.state = 'open';
+      spawnBurst(game, game.moonGate.x, game.moonGate.y, '#e8f0ff', 22);
+      spawnBurst(game, game.moonGate.x, game.moonGate.y, '#cfd8ff', 12);
+    }
+    // §52: the ACTIVE character touching the open gate completes the level.
+    const g = game.moonGate;
+    if (g && g.state === 'open' && game.screen === 'playing' && !player.dead
+        && circleHitsAABB(g.x, g.y, g.r + MOON_GATE_TOUCH_MARGIN, player)) {
+      completeLevel();
+    }
+  }
 }
 
 // §65 death/victory stat block: score, kills, coins, damage taken, rank.
@@ -586,6 +677,7 @@ const loop = createLoop({
     checkMidCheckpoints(chapter);      // §44: crossed mid-chapter rects
     checkUnlocks();
     checkTimeDoors();
+    updateFinale(dt);                   // §52: choice → moon rise → gate
 
     // §25.1 slow-motion expiry — the time-domain effect is GLOBAL and runs
     // on the player-domain clock (it outlives switching away from Aram).
@@ -631,6 +723,7 @@ const touchControls = document.getElementById('touch-controls');
 const startScreen = document.getElementById('start-screen');
 const deathScreen = document.getElementById('death-screen');
 const victoryScreen = document.getElementById('victory-screen');
+const choiceOverlay = document.getElementById('choice-overlay');
 
 // ---- overlays (§8, §65): DOM classes only change when visibility changes (§70)
 let lastPauseShown = null;
@@ -639,15 +732,18 @@ let lastControlsShown = null;
 let lastStartShown = null;
 let lastDeathShown = null;
 let lastVictoryShown = null;
+let lastChoiceShown = null;
 
 function updateOverlays() {
   const portrait = portraitMq.matches;
   const playing = game.screen === 'playing';
-  const showPause = game.paused && !portrait && playing;   // pause menu: gameplay only
+  // Pause menu: gameplay only, never while the §52 choice plate is up.
+  const showPause = game.paused && !portrait && playing && !game.choiceActive;
   const showControls = !game.paused && playing;            // §15 hidden during Pause+Portrait
   const showStart = game.screen === 'title';               // §65 start screen
   const showDeath = game.screen === 'dead';                // §65 death screen
   const showVictory = game.screen === 'victory';           // §65 victory screen
+  const showChoice = game.choiceActive;                    // §52 the choice
   if (showPause !== lastPauseShown) {
     pauseOverlay.classList.toggle('hidden', !showPause);
     lastPauseShown = showPause;
@@ -671,6 +767,10 @@ function updateOverlays() {
   if (showVictory !== lastVictoryShown) {
     victoryScreen.classList.toggle('hidden', !showVictory);
     lastVictoryShown = showVictory;
+  }
+  if (showChoice !== lastChoiceShown) {
+    choiceOverlay.classList.toggle('hidden', !showChoice);
+    lastChoiceShown = showChoice;
   }
 }
 
@@ -698,6 +798,13 @@ if (portraitMq.addEventListener) {
 // ---- explicit resume sources (§8.4): Resume button + desktop R -----------
 window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
+  // §52 choice keys (1/2/3) — accepted ONLY while the choice overlay is up.
+  if (game.choiceActive) {
+    if (e.code === 'Digit1') makeChoice('free');
+    else if (e.code === 'Digit2') makeChoice('leave');
+    else if (e.code === 'Digit3') makeChoice('sacrifice');
+    return;
+  }
   // Manual pause/resume exist only during gameplay — the title/death/
   // victory screens resume through their own buttons (§65).
   if (e.code === 'Escape') {
@@ -765,6 +872,23 @@ travelAgainButton.addEventListener('touchstart', (e) => {
   e.preventDefault();
   onRetry();
 }, { passive: false });
+
+// ---- §52 the choice: buttons (keys 1/2/3 route through the same fn) ----
+const CHOICE_BUTTONS = [
+  ['btn-choice-free', 'free'],
+  ['btn-choice-leave', 'leave'],
+  ['btn-choice-sacrifice', 'sacrifice'],
+];
+for (let i = 0; i < CHOICE_BUTTONS.length; i += 1) {
+  const el = document.getElementById(CHOICE_BUTTONS[i][0]);
+  if (!el) continue;
+  const key = CHOICE_BUTTONS[i][1];
+  el.addEventListener('click', () => makeChoice(key));
+  el.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    makeChoice(key);
+  }, { passive: false });
+}
 
 // ---- responsive canvas (§7) ----------------------------------------------
 window.addEventListener('resize', () => {
@@ -846,10 +970,24 @@ function pushMetrics(frameInfo) {
     npcPrompt: st.npcPrompt ? st.npcPrompt.id : null,
     npcDialogue: st.npcDialogue ? st.npcDialogue.text : null,
     cinematic: st.cinematic ? st.cinematic.title : null,
+    chapterComplete: st.chapterComplete ? st.chapterComplete.id : null,
     quip: st.quip ? st.quip.text : null,
     npcInteracted: Object.keys(st.npcDone),
     beatsSeen: Object.keys(st.pouriaBeats),
   };
+  // ---- Phase 12 finale instrumentation (§74 — the 79.18 facts) ----
+  M.queenDefeated = game.queenDefeated;
+  M.choice = {
+    active: game.choiceActive,
+    made: game.choiceMade,
+    thirdAvailable: game.queenDefeated && trueEndingPathOpen(),
+  };
+  M.moonRiseT = game.moonRiseT;
+  M.moonGate = game.moonGate
+    ? { x: game.moonGate.x, y: game.moonGate.y, r: game.moonGate.r, state: game.moonGate.state }
+    : null;
+  M.pouriaEscaped = game.pouriaEscaped;
+  M.pouriaSpared = game.pouriaSpared;
   M.renderTimestamps.push(frameInfo.now);
   if (M.renderTimestamps.length > 240) M.renderTimestamps.shift();
 }

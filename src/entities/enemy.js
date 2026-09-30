@@ -45,16 +45,21 @@ import {
 } from '../constants.js';
 import { aiStep, computeFlanks } from '../ai.js';
 import { spawnBurst, spawnHit, spawnDustCloud, addRing, triggerShake } from './particle.js';
+import { bossDamage, bossStep, createBossEntities } from './boss.js';
 
 // §57 hit particles fire "in the target's color" — the roster's visible
 // signature tones (steel armor greys for the cube-bodied soldiers, the
 // Brute's crimson cloth). The player target uses the active character's
-// signature color (player.js / damagePlayer).
+// signature color (player.js / damagePlayer). Phase 12 adds the finale
+// entities' tones (§52/§52.2).
 const ENEMY_HIT_COLORS = {
   patroller: '#b8c2d4',
   chaser: '#b8c2d4',
   armored: '#d0d6e0',
   brute: '#c02020',
+  pouria: '#7a3aa8',
+  chain: '#5a2a7a',
+  queen: '#e8f0ff',
 };
 
 // Deterministic 8–10 cube shatter count from the stable ID (§31/§72 — no
@@ -103,6 +108,10 @@ export function createEnemies(level, defeatedEnemyIds) {
         }, chapter));
       }
     }
+
+    // Phase 12 finale entities (§51 specialChallenge/finalBattle → boss.js).
+    const bosses = createBossEntities(chapter, defeatedEnemyIds);
+    for (let b = 0; b < bosses.length; b += 1) enemies.push(bosses[b]);
   }
   return enemies;
 }
@@ -221,10 +230,20 @@ function deadTransition(game, enemy, viaStomp) {
 }
 
 // Apply damage to an enemy. `viaStomp` marks the §40 stomp path (the only
-// path that can qualify for Perfect Landing, §41). Exposed for the test-mode
-// harness (§73) — production callers pass the combat-path flag.
-export function damageEnemy(game, enemy, dmg, viaStomp = false) {
+// path that can qualify for Perfect Landing, §41); `source` names the combat
+// path ('knife'|'magic'|'dash'|'stomp'|'shockwave'|'slam') so the §52.2
+// non-lethal routing can tell Raha's slam from lethal blows. Exposed for the
+// test-mode harness (§73) — production callers pass the combat-path flags.
+export function damageEnemy(game, enemy, dmg, viaStomp = false, source = null) {
   if (enemy.dead || dmg <= 0) return;               // §31: dead = no damage
+  if (enemy.boss) {
+    enemy.hurtT = ENEMY_HURT_T;
+    spawnHit(game, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2,
+             ENEMY_HIT_COLORS[enemy.type] || '#b8c2d4');
+    const res = bossDamage(game, enemy, dmg, viaStomp, source);
+    if (res === 'dead') deadTransition(game, enemy, viaStomp);
+    return;
+  }
   enemy.hp -= dmg;
   enemy.hurtT = ENEMY_HURT_T;                       // §31: hurt, 0.15 s
   // §57 hit particles: 10–15 in the target's color on EVERY damage impact
@@ -246,6 +265,7 @@ export function damageEnemy(game, enemy, dmg, viaStomp = false) {
 // (i-frames §22) never reach here. The death state itself is finalized by
 // updatePlayer's shared death system (§43).
 function damagePlayer(game, player, dmg) {
+  if (dmg <= 0) return;                             // harmless contacts (§52.2 chains)
   const lost = Math.min(player.hp, dmg);
   player.hp -= lost;
   game.damageTaken += lost;                         // §61: actual HP points lost
@@ -279,7 +299,7 @@ function resolvePlayerContact(game, enemy, player) {
   if (player.dashT > 0) {
     if (player.dashHits.indexOf(enemy.id) === -1) {
       player.dashHits.push(enemy.id);
-      damageEnemy(game, enemy, DASH_DAMAGE, false);
+      damageEnemy(game, enemy, DASH_DAMAGE, false, 'dash');
     }
     return;
   }
@@ -289,7 +309,7 @@ function resolvePlayerContact(game, enemy, player) {
   const prevBottom = player.prevY + player.h;
   const crossedTop = prevBottom <= enemy.y + 2 && player.y + player.h >= enemy.y;
   if (player.vy > STOMP_MIN_VY && crossedTop) {
-    damageEnemy(game, enemy, STOMP_DAMAGE, true);
+    damageEnemy(game, enemy, STOMP_DAMAGE, true, 'stomp');
     player.vy = STOMP_BOUNCE;                       // §40 locked bounce
     player.onGround = false;
     // The bounce counts as the first jump of a fresh airborne cycle, arming
@@ -418,14 +438,16 @@ export function updateEnemies(game, enemies, player, dt, level) {
     if (e.staggerT > 0) e.staggerT = Math.max(0, e.staggerT - simDt);
     e.walkTime += simDt;
     if (e.staggerT <= 0) {
-      // Combat layers first: the Brute radial owns the step during its
-      // wind-up; the non-Brute telegraph is VISUAL-ONLY (§32) and never
-      // suppresses navigation — the enemy keeps patrolling/chasing while
-      // the tint + backward-lean telegraph renders.
-      const radialOwns = bruteRadialStep(game, e, player, simDt);
-      if (!radialOwns) {
-        telegraphStep(e, player, simDt);
-        aiStep(e, player, simDt, level, e.flank);
+      if (e.boss) {
+        bossStep(game, e, player, simDt, level, enemies);
+      } else {
+        // Brute radial owns its wind-up; the non-Brute telegraph is
+        // VISUAL-ONLY (§32) — navigation continues.
+        const radialOwns = bruteRadialStep(game, e, player, simDt);
+        if (!radialOwns) {
+          telegraphStep(e, player, simDt);
+          aiStep(e, player, simDt, level, e.flank);
+        }
       }
     } else {
       e.vx = 0;                                     // stagger hold
@@ -458,6 +480,13 @@ export function enemiesSnapshot(enemies) {
       chaseState: e.chaseState, alertT: e.alertT, flank: e.flank,
       attackWindup: e.attackWindup, radialCd: e.radialCd,
       radialWindup: e.radialWindup, chargeState: e.chargeState,
+      // Phase 12 finale instrumentation (§52/§52.2 — the 79.18 facts).
+      boss: !!e.boss, bossKind: e.bossKind || null, mode: e.mode || null,
+      phase: e.phase || null, phaseCount: e.phasePools ? e.phasePools.length : null,
+      corruptionHp: e.corruptionHp != null ? e.corruptionHp : null,
+      realHp: e.realHp != null ? e.realHp : null,
+      subdued: !!e.subdued, invulnerable: !!e.invulnerable, exposed: !!e.exposed,
+      invulnT: e.invulnT || 0,
     };
   }
   return out;

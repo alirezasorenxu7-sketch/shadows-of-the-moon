@@ -231,10 +231,58 @@ export const UNLOCK_CINEMATICS = Object.freeze({
   },
 });
 
+// ---- Phase 12 finale cinematics (§52/§52.2 — authored final content) ------
+export const BOSS_CINEMATICS = Object.freeze({
+  pouriaEscape: {
+    title: 'POURIA — THE LOST BROTHER',
+    text: 'He steps out of the dark wearing a stranger\'s eyes. Blade up. No recognition. You cannot fight him. Run.',
+  },
+  pouriaEscaped: {
+    title: 'ESCAPED',
+    text: 'The shadow stops at the chapter\'s edge, screaming a name it cannot finish. You escaped what you could not fight — it remembers you.',
+  },
+  pouriaFight: {
+    title: 'POURIA — FULL CORRUPTION',
+    text: 'Shadow pours off him like smoke off a drowned fire. The chains ARE the corruption — break them, not the brother inside.',
+  },
+  pouriaWon: {
+    title: 'THE BROTHER REMEMBERED',
+    text: 'The last chain tears away and he drops to his knees — smaller, human, breathing. "Sara?" He knows your name again.',
+  },
+  queenStart: {
+    title: 'THE QUEEN OF LIGHT',
+    text: 'The glow behind the castle stands up: robes of captured dawn, a crown of grief. "LITTLE SINGER," she says, kindly — and raises her hand.',
+  },
+});
+
+// ---- §52 THE CHOICE — three simultaneous beats, the player must choose -----
+export const CHOICE_OPTIONS = Object.freeze([
+  Object.freeze({
+    key: 'free',
+    cinematic: {
+      title: 'THE PRISON OPENS',
+      text: 'The gate-light bends toward the bars that hold your brother. Something must fill the space he leaves behind. You already know what.',
+    },
+  }),
+  Object.freeze({
+    key: 'leave',
+    cinematic: {
+      title: 'THE BARS HOLD',
+      text: 'You turn away and the light dims behind you like a closing eye. The gate is open. The prison is not.',
+    },
+  }),
+  Object.freeze({
+    key: 'sacrifice',
+    label: "ACCEPT THE QUEEN'S GIFT",
+    hint: 'Aram\'s mother offers her own life force to replace Pouria\'s — brother and moon both saved.',
+    cinematic: {
+      title: 'THE MOTHER\'S CHOICE',
+      text: 'The Queen lays her crown at her son\'s feet. "I have kept the light long enough. Let it keep them instead."',
+    },
+  }),
+]);
+
 // ---- Pouria-track story beats (§4/§52.2) ---------------------------------
-// The beats are carried by the flashback slots above (1-4 scarf / 2-3
-// glimpse / 3-1 fear beat) and by Phase 12's authored chapters (2-5 escape
-// fight, 3-4 non-lethal final fight, 3-5 resolution). No separate state.
 
 // ---- presentation tuning (authored constants) -----------------------------
 export const STORY_RANGES = Object.freeze({
@@ -248,6 +296,7 @@ export const STORY_DURATIONS = Object.freeze({
   npcDialogue: 5.0,  // §68 "Duration: 5s"
   cinematic: 3.0,    // unlock cinematic plate
   quip: 2.0,         // switch quip line
+  chapterComplete: 4.0,  // §50 completion screen (non-blocking plate)
 });
 
 // ---- run-scoped story state (§71: lives on `game.story`) ------------------
@@ -261,6 +310,7 @@ export function createStoryState() {
     npcDialogue: null,      // {id, text, until}
     npcDone: {},            // per NPC id: latched (§68 never repeats per run)
     cinematic: null,        // {title, text, until} unlock plate
+    chapterComplete: null,  // {id, title, text, until} §50 completion plate
     quip: null,             // {text, until, x} above the character
     quipCounts: { sara: 0, raha: 0, aram: 0 },   // authored selection (§72)
     pouriaBeats: {},        // beat keys latched this run
@@ -349,9 +399,10 @@ export function updateStory(game, player, level, events, dt) {
     }
   }
 
-  // --- cinematic / quip expiry (presentation-only clocks, player domain) --
+  // --- cinematic / quip / chapter-plate expiry (player-domain clocks) ---
   if (s.cinematic && game.gameTime > s.cinematic.until) s.cinematic = null;
   if (s.quip && game.gameTime > s.quip.until) s.quip = null;
+  if (s.chapterComplete && game.gameTime > s.chapterComplete.until) s.chapterComplete = null;
 
   return consumed;
 }
@@ -386,4 +437,37 @@ export function showStoryBeat(game, beatKey) {
   if (!s || !b || s.pouriaBeats[beatKey]) return;
   s.pouriaBeats[beatKey] = true;
   s.cinematic = { title: b.title, text: b.text, until: game.gameTime + STORY_DURATIONS.cinematic };
+}
+
+// Phase 12 finale cinematics (§52/§52.2) — once per run per key.
+export function showBossCinematic(game, key) {
+  const s = game.story;
+  const b = BOSS_CINEMATICS[key];
+  if (!s || !b || s.pouriaBeats[key]) return;
+  s.pouriaBeats[key] = true;
+  s.cinematic = { title: b.title, text: b.text, until: game.gameTime + STORY_DURATIONS.cinematic };
+}
+
+// §50/§67 chapter completion plate — non-blocking letterbox showing the
+// chapter's completeText as the player crosses into the next chapter.
+export function showChapterComplete(game, chapter) {
+  const s = game.story;
+  if (!s) return;
+  s.chapterComplete = {
+    id: chapter.id,
+    title: 'CHAPTER ' + chapter.id + ' — ' + chapter.name.toUpperCase(),
+    text: chapter.completeText,
+    until: game.gameTime + STORY_DURATIONS.chapterComplete,
+  };
+}
+
+// §52 choice aftermath — the chosen option's cinematic rides the moon rise.
+export function showChoiceCinematic(game, option) {
+  const s = game.story;
+  if (!s || !option || !option.cinematic) return;
+  s.cinematic = {
+    title: option.cinematic.title,
+    text: option.cinematic.text,
+    until: game.gameTime + 4.2,
+  };
 }

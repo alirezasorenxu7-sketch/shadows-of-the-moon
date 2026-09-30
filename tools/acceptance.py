@@ -897,6 +897,11 @@ def test_aram_slow_motion(browser):
         page.wait_for_timeout(550)          # flight + kill award
 
         # Player at 1.0: hold D and sample vx inside the same slow-mo.
+        # The steady-rate window starts 0.10s after the key-down edge: the
+        # first renders of the hold can still carry the pre-press vx (the
+        # metrics snapshot lags the sim step by up to one render) — sampling
+        # the steady 0.28s tail keeps the assertion strict (a real player-
+        # domain 0.35x slowdown would read ~126 and still fail hard).
         page.keyboard.down("D")
         page.wait_for_timeout(400)
         page.keyboard.up("D")
@@ -921,7 +926,7 @@ def test_aram_slow_motion(browser):
             (ta, va), (tb, vb) = cd_pts[0], cd_pts[-1]
             slope_cd = (vb - va) / (tb - ta)
         pvx_pts = [abs(r["pvx"]) for r in rows
-                   if t_off_sample - 0.4 <= r["t"] <= t_off_sample and r["pvx"] is not None]
+                   if t_off_sample - 0.30 <= r["t"] <= t_off_sample - 0.02 and r["pvx"] is not None]
         mean_pvx = sum(pvx_pts) / len(pvx_pts) if pvx_pts else None
         slow_rows = [r for r in rows if r["slow"]]
         duration = None
@@ -1645,6 +1650,134 @@ def test_checkpoint_duplicate_score(browser):
         ctx.close()
 
 
+def test_final_battle_gate(browser):
+    """SPEC §79.18: Final battle gate.
+    - final boss is the Queen of Light (multi-phase)
+    - closed while the Queen remains undefeated
+    - opens after all Queen phases complete
+    - active player touching open gate completes level
+
+    Drives the ORGANIC §52 chain: teleport into the 3-5 arena, burn all three
+    authored phase pools through the organic damage path (forceKill x3), pass
+    the required choice beat (DOM button — the third, true-ending-only option
+    must be hidden without 3 crystals + NPCs), watch the moon rise open the
+    gate, then touch it: victory screen, §63 save write, simulation stopped."""
+    name = "test: Final battle gate logic (§79.18)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        problems: list[str] = []
+
+        def metrics():
+            return _metrics(page)
+
+        def find(eid):
+            for e in metrics()["enemies"]:
+                if e["id"] == eid:
+                    return e
+            return None
+
+        def gate_state(m):
+            return m["moonGate"]["state"] if m.get("moonGate") else None
+
+        # Enter the final arena (3-5 ground stretch; the Queen wakes there).
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(49300, 594, 0)")
+        page.wait_for_timeout(400)
+
+        # 1) the final boss IS the Queen of Light — multi-phase (3 pools).
+        queen = find("c3_5_queen")
+        if queen is None:
+            problems.append("c3_5_queen missing in the 3-5 arena")
+        else:
+            if queen.get("bossKind") != "queen":
+                problems.append(f"final boss bossKind = {queen.get('bossKind')}, expected 'queen'")
+            if queen.get("phaseCount") != 3 or queen.get("phase") != 1:
+                problems.append(f"queen not multi-phase: phase {queen.get('phase')}"
+                                f"/{queen.get('phaseCount')}")
+
+        # 2) the gate is CLOSED while the Queen remains undefeated.
+        m = metrics()
+        if gate_state(m) != "closed":
+            problems.append(f"gate state before the fight = {gate_state(m)}, expected 'closed'")
+
+        # 3) phase pools burn one at a time — the gate stays closed until ALL
+        #    phases complete. (2 s waits clear the 1.6 s transition window.)
+        for i in (1, 2):
+            if not page.evaluate("() => window.__SOM_TEST_API__.forceKill('c3_5_queen')"):
+                problems.append(f"forceKill #{i} could not reach the queen")
+            page.wait_for_timeout(2000)
+            m = metrics()
+            q = find("c3_5_queen")
+            if q is None or q["dead"]:
+                problems.append(f"queen fell before her final phase (kill #{i})")
+                break
+            if q["phase"] != i + 1:
+                problems.append(f"queen phase after kill #{i} = {q['phase']}, expected {i + 1}")
+            if gate_state(m) != "closed":
+                problems.append(f"gate opened before all phases (kill #{i}): {gate_state(m)}")
+
+        # 4) the final pool falls -> the required choice beat (§52).
+        if page.evaluate("() => window.__SOM_TEST_API__.forceKill('c3_5_queen')"):
+            page.wait_for_timeout(400)
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__.choice.active === true", timeout=8000)
+        m = metrics()
+        if not m["queenDefeated"]:
+            problems.append("queenDefeated flag not set after the final phase")
+        if m["choice"]["thirdAvailable"]:
+            problems.append("third (true-ending-only) option available without crystals/NPCs (§52)")
+        if page.locator("#btn-choice-sacrifice").is_visible():
+            problems.append("sacrifice option visible on a non-true-ending run (§52)")
+        if not page.locator("#choice-overlay").is_visible():
+            problems.append("choice overlay not visible at the §52 beat")
+
+        # 5) the choice drives the moon rise (§55) and the gate opening.
+        page.click("#btn-choice-leave")
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__.choice.made === 'leave'", timeout=4000)
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__.moonGate.state === 'open'", timeout=12000)
+        m = metrics()
+        if m["moonRiseT"] <= 0:
+            problems.append("moon rise not running after the choice (§55 payoff)")
+        if gate_state(m) != "open":
+            problems.append(f"gate state after all phases + choice = {gate_state(m)}")
+
+        # 6) the ACTIVE player touching the open gate completes the level.
+        save_writes = m["saveWrites"]
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(49860, 594, 0)")
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__.screen === 'victory'", timeout=8000)
+        page.wait_for_timeout(300)
+        m = metrics()
+        if m["screen"] != "victory":
+            problems.append(f"screen after touching the open gate = {m['screen']}")
+        if not page.locator("#victory-screen").is_visible():
+            problems.append("victory screen not visible after gate touch")
+        if not m["paused"]:
+            problems.append("simulation not stopped in the Victory state (§52.6)")
+        if m["saveWrites"] <= save_writes:
+            problems.append(f"victory did not write the §63 save "
+                            f"({save_writes} -> {m['saveWrites']})")
+        if m["lastRank"] not in ("S", "A", "B", "C"):
+            problems.append(f"victory rank not computed: {m['lastRank']}")
+
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+        return Result(name, "PASS",
+                      "the 3-phase Queen held the gate closed through every pool; the "
+                      "required choice beat passed (third option correctly locked), the "
+                      "moon rose, the gate opened, and touching it completed the level "
+                      "with the victory screen, a §63 save write, and the sim stopped")
+    finally:
+        ctx.close()
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
@@ -1660,6 +1793,7 @@ _IMPLS = {
     "fullscreen": test_fullscreen,
     "persistence": test_persistence,
     "checkpoint_duplicate_score": test_checkpoint_duplicate_score,
+    "final_battle_gate": test_final_battle_gate,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:
