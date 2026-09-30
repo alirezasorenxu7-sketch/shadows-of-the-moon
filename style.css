@@ -178,6 +178,45 @@ body {
   outline-offset: 2px;
 }
 
+/* ---- §54/§65 shake intensity control (Phase 10, session-only) ------------- */
+
+.pause-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.pause-label {
+  font: 600 13px system-ui, sans-serif;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #8b93c9;
+}
+
+.shake-opt {
+  padding: 8px 18px;
+  font: 600 13px system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  color: #8b93c9;
+  background: rgba(11, 15, 26, 0.85);
+  border: 1px solid rgba(139, 147, 201, 0.35);
+  border-radius: 10px;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.shake-opt[aria-pressed="true"] {
+  color: #e8ecff;
+  border-color: rgba(74, 158, 255, 0.75);
+  background: rgba(74, 158, 255, 0.2);
+}
+
+.shake-opt:focus-visible {
+  outline: 2px solid rgba(74, 158, 255, 0.9);
+  outline-offset: 2px;
+}
+
 /* ---- §65 screens (Phase 9) ------------------------------------------------ */
 
 /* Screens sit above the pause overlay; the portrait rotation overlay (§8.2)

@@ -39,9 +39,22 @@ import {
   CHASE_TRIGGER_Y,
   SHAKE_LARGE_PX,
   SHAKE_LARGE_T,
+  DAMAGE_FLASH_T,
+  CHARACTER_COLORS,
 } from '../constants.js';
 import { aiStep, computeFlanks } from '../ai.js';
-import { spawnBurst, addRing } from './particle.js';
+import { spawnBurst, spawnHit, spawnDustCloud, addRing, triggerShake } from './particle.js';
+
+// §57 hit particles fire "in the target's color" — the roster's visible
+// signature tones (steel armor greys for the cube-bodied soldiers, the
+// Brute's crimson cloth). The player target uses the active character's
+// signature color (player.js / damagePlayer).
+const ENEMY_HIT_COLORS = {
+  patroller: '#b8c2d4',
+  chaser: '#b8c2d4',
+  armored: '#d0d6e0',
+  brute: '#c02020',
+};
 
 // Deterministic 8–10 cube shatter count from the stable ID (§31/§72 — no
 // unseeded randomness; the same enemy always shatters the same way).
@@ -183,6 +196,9 @@ function deadTransition(game, enemy, viaStomp) {
   // §31 death: shatter into 8–10 cubes (deterministic count per ID).
   spawnBurst(game, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2,
              '#1e1e1e', shatterCount(enemy.id));
+  // §57 hit-stop on kill: the deterministic 70 ms freeze (§9). Bridged to
+  // the loop by main.js; optional-call keeps this module loop-agnostic.
+  if (typeof game.requestHitStop === 'function') game.requestHitStop();
 }
 
 // Apply damage to an enemy. `viaStomp` marks the §40 stomp path (the only
@@ -192,6 +208,10 @@ export function damageEnemy(game, enemy, dmg, viaStomp = false) {
   if (enemy.dead || dmg <= 0) return;               // §31: dead = no damage
   enemy.hp -= dmg;
   enemy.hurtT = ENEMY_HURT_T;                       // §31: hurt, 0.15 s
+  // §57 hit particles: 10–15 in the target's color on EVERY damage impact
+  // (deterministic count; kill-time adds the cube shatter separately).
+  spawnHit(game, enemy.x + enemy.w / 2, enemy.y + enemy.h / 2,
+           ENEMY_HIT_COLORS[enemy.type] || '#b8c2d4');
   // §31/§34: two hits within 1.0 s -> 0.5 s stagger (enemy-domain timers).
   enemy.recentHits.push(game.gameTime);
   if (enemy.recentHits.length > 2) enemy.recentHits.shift();
@@ -213,6 +233,12 @@ function damagePlayer(game, player, dmg) {
   player.invuln = INVULN_T;                         // §22: 1.0 s after real HP loss
   game.killStreak = 0;                              // §60: combo resets on HP loss
   game.comboTimer = 0;
+  // §57 damage flash: red full-screen, 0.15 s (presentation state decayed
+  // in main.js's player domain; rendered above the world, under the HUD).
+  game.damageFlashT = DAMAGE_FLASH_T;
+  // §57 hit particles in the target's (player's) signature color.
+  spawnHit(game, player.x + player.w / 2, player.y + player.h / 2,
+           CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara);
 }
 
 // §35 player-enemy collision for one enemy. Stomp takes priority over side
@@ -286,7 +312,8 @@ function bruteRadialStep(game, e, player, simDt) {
       const cy = e.y + e.h / 2;
       addRing(game, cx, cy, BRUTE_RADIAL_RADIUS, 'rgba(192,32,32,0.5)');
       spawnBurst(game, cx, cy, '#c02020', 12);
-      game.shake = { mag: SHAKE_LARGE_PX, t: SHAKE_LARGE_T, T: SHAKE_LARGE_T };   // §54/§57 heavy hit
+      spawnDustCloud(game, cx, cy);                // §56 dust cloud on heavy impact
+      triggerShake(game, SHAKE_LARGE_PX, SHAKE_LARGE_T);   // §54/§57 heavy hit
       e.radialCd = BRUTE_RADIAL_COOLDOWN;
       if (centerDist(e, player) <= BRUTE_RADIAL_RADIUS
           && !player.dead && player.invuln <= 0 && player.shieldT <= 0) {

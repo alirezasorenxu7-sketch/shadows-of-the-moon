@@ -302,6 +302,54 @@ export const SHAKE_DECAY = 30;              // §54: decay rate, dt * 30
 // ---- particles (SPEC §57, §78 — minimal Phase 7 feedback system) -------------
 export const PARTICLE_CAP = 400;            // §78 hard cap, amended from 200
 
+// ---- game feel (SPEC §57 — Phase 10: the full juice set) ---------------------
+export const DAMAGE_FLASH_T = 0.15;         // red full-screen flash duration, s
+export const DAMAGE_FLASH_ALPHA = 0.34;     // authored peak alpha (red #a0141e)
+export const LANDING_DUST_MIN_FALL = 100;   // fall distance that dusts, px (§57)
+export const LANDING_DUST_COUNT = 10;       // 8–12 authorized; deterministic 10
+export const HIT_PARTICLE_COUNT = 12;       // 10–15 authorized; deterministic 12
+export const DUST_HEAVY_COUNT = 14;         // §56 dust clouds on heavy impacts
+export const DASH_TRAIL_FADE = 0.25;        // afterimage fade window, s (alpha 0.4 → 0)
+
+// ---- screen shake session setting (SPEC §54 — Full / Reduced / Off) ----------
+// Presentation-only magnitude scale applied at every trigger site; the §54
+// decay law (dt * 30) and authored durations are untouched. In-memory session
+// setting — deliberately NOT part of save v2 (§63 schema is locked).
+export const SHAKE_MODES = Object.freeze(['full', 'reduced', 'off']);
+export const SHAKE_MODE_SCALE = Object.freeze({ full: 1, reduced: 0.45, off: 0 });
+
+// ---- ambient loops + weather (SPEC §56 — Phase 10) ---------------------------
+// Emission intervals (seconds) per ambient kind; all spawning is deterministic
+// (§72 — hashed counters, never Math.random). Colors are render-authored
+// moonlit tones consistent with §55.
+export const AMBIENT_INTERVALS = Object.freeze({
+  leaf: 0.9, firefly: 0.5, shaftMote: 0.7,       // Act 1
+  roadDust: 0.45, fogWisp: 1.6, feather: 2.4, rain: 0.07,   // Act 2
+  spark: 0.30, dustCloud: 1.3, debris: 0.8,      // Act 3
+  aramMote: 0.4,                                  // Aram active: always
+});
+export const AMBIENT_AMBIENT_MAX = 110;     // live ambient ceiling (§78 reserve
+                                             // keeps headroom for burst FX)
+export const AMBIENT_PALETTE = Object.freeze({
+  leaf: '#7a5c24', firefly: '#d8e86a', shaftMote: '#cfd8ff',
+  roadDust: '#3a3f4c', fogWisp: '#0d1420', feather: '#c9cede',
+  rain: '#9fb4d8', spark: '#e07b2a', dustCloud: '#33363f',
+  debris: '#22242c', aramMote: '#c77dff',
+});
+// §56 distant lightning: VISUAL ONLY — never a gameplay effect. Deterministic
+// schedule (period + fixed phase; no randomness).
+export const LIGHTNING_PERIOD = 9.0;        // s between horizon flashes
+export const LIGHTNING_FLASH_T = 0.22;      // flash duration, s
+// §56 wind: gentle foliage sway amplitude/rate (deterministic sines).
+export const WIND_SWAY_PX = 1.6;            // grass/canopy sway amplitude, px
+export const WIND_SWAY_RATE = 1.7;          // sway rate, rad/s
+
+// ---- atmosphere lighting (SPEC §55 — Phase 10) --------------------------------
+// Ambient light sources (torches from the authored set dressing) paint a
+// layered radial glow and a proximity rim light on the active character.
+export const TORCH_LIGHT_RANGE = 260;       // rim-light falloff range, px
+export const TORCH_GLOW_ALPHA = 0.16;       // outermost shell peak alpha
+
 // ---- Raha rendering (SPEC §18.2 — locked appearance colors) -----------------
 export const RAHA_PALETTE = Object.freeze({
   armor: '#2a2a2a',      // dark armor: pauldrons, chest plate, gauntlets

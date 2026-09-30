@@ -4,10 +4,10 @@
 // ACT/CHAPTER STRUCTURE (2026-09-28 scope amendment):
 //   3 acts × 5 chapters = 15 chapters, contiguous, ~50000px world.
 //   Each chapter: { id, name, platforms, enemies, collectibles, checkpoint,
-//   miniBoss, inscription, completeText } (§51). Chapters 1-1 .. 1-3 are
-//   authored here as the reference examples; 1-4 .. 3-5 carry system
-//   placeholders (authored: false — length + chapter-start checkpoint only)
-//   and are fully authored in Phase 12.
+//   miniBoss, dressing, inscription, completeText } (§51). Chapters 1-1 ..
+//   1-3 are authored here as the reference examples; 1-4 .. 3-5 carry
+//   system placeholders (authored: false — length + chapter-start checkpoint
+//   only) and are fully authored in Phase 12.
 //
 // COORDINATE CONVENTIONS (world pixels, absolute):
 //   platforms  {x, y, w, h}            — top-left, solid AABB (breakable:
@@ -53,6 +53,7 @@ function unauthoredChapter(id, act, name, length, startX) {
     }),
     midCheckpoints: Object.freeze([]),
     miniBoss: null,
+    dressing: Object.freeze([]),   // §55 Phase 10: authored with the chapter
     inscription: null,       // authored with the chapter (Phase 12)
     completeText: null,
   });
@@ -115,6 +116,19 @@ export const LEVEL_DATA = Object.freeze({
         pattern: 'telegraph-ground-slam', reward: 'heart-fragment',
         arena: Object.freeze({ x: 2820, w: 580 }),
       }),
+      // §55 Phase 10 set dressing (authored per chapter): broken stone
+      // statues, wooden fences, torn banners, skeletons, cobwebs, and the
+      // torch poles that act as ambient light sources (rim light + glow).
+      dressing: Object.freeze([
+        Object.freeze({ kind: 'statue', x: 210, y: GROUND_Y, s: 0 }),
+        Object.freeze({ kind: 'torch', x: 560, y: GROUND_Y }),
+        Object.freeze({ kind: 'fence', x: 850, y: GROUND_Y, s: 3 }),
+        Object.freeze({ kind: 'cobweb', x: 1005, y: 484 }),
+        Object.freeze({ kind: 'bones', x: 1360, y: GROUND_Y, s: 1 }),
+        Object.freeze({ kind: 'banner', x: 2520, y: GROUND_Y, s: 0 }),
+        Object.freeze({ kind: 'torch', x: 2880, y: GROUND_Y }),
+        Object.freeze({ kind: 'statue', x: 3150, y: GROUND_Y, s: 1 }),
+      ]),
       inscription: 'This is the forest of Midnight. The moon was stolen...',
       completeText: 'The first steps are taken. Midnight remembers your footprints.',
     }),
@@ -180,6 +194,17 @@ export const LEVEL_DATA = Object.freeze({
         pattern: 'telegraph-charge', reward: 'heart-fragment',
         arena: Object.freeze({ x: 6440, w: 560 }),
       }),
+      // §55 Phase 10 set dressing — the deepening wood: denser ruins.
+      dressing: Object.freeze([
+        Object.freeze({ kind: 'fence', x: 3620, y: GROUND_Y, s: 2 }),
+        Object.freeze({ kind: 'cobweb', x: 4290, y: 454 }),
+        Object.freeze({ kind: 'bones', x: 4900, y: GROUND_Y, s: 0 }),
+        Object.freeze({ kind: 'statue', x: 5420, y: GROUND_Y, s: 2 }),
+        Object.freeze({ kind: 'torch', x: 6160, y: GROUND_Y }),
+        Object.freeze({ kind: 'banner', x: 6470, y: GROUND_Y, s: 1 }),
+        Object.freeze({ kind: 'torch', x: 6810, y: GROUND_Y }),
+        Object.freeze({ kind: 'fence', x: 6940, y: GROUND_Y, s: 1 }),
+      ]),
       inscription: 'The trees grow older toward the heart. Few who enter return.',
       completeText: 'The wood deepens, but you walk it together.',
     }),
@@ -237,6 +262,17 @@ export const LEVEL_DATA = Object.freeze({
         pattern: 'telegraph-radial-burst', reward: 'heart-fragment',
         arena: Object.freeze({ x: 9760, w: 640 }),
       }),
+      // §55 Phase 10 set dressing — the forest edge: the road's first bones.
+      dressing: Object.freeze([
+        Object.freeze({ kind: 'statue', x: 7220, y: GROUND_Y, s: 3 }),
+        Object.freeze({ kind: 'torch', x: 7560, y: GROUND_Y }),
+        Object.freeze({ kind: 'banner', x: 8020, y: GROUND_Y, s: 2 }),
+        Object.freeze({ kind: 'cobweb', x: 8470, y: 524 }),
+        Object.freeze({ kind: 'bones', x: 9150, y: GROUND_Y, s: 2 }),
+        Object.freeze({ kind: 'fence', x: 9500, y: GROUND_Y, s: 0 }),
+        Object.freeze({ kind: 'torch', x: 9840, y: GROUND_Y }),
+        Object.freeze({ kind: 'statue', x: 10240, y: GROUND_Y, s: 4 }),
+      ]),
       inscription: 'Beyond these trees the road runs dark. Walk it together.',
       completeText: 'The forest ends. The dark road begins.',
     }),
