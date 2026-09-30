@@ -369,7 +369,7 @@ export function radialImpact(game, player, enemies, level, dmg) {
   for (let i = 0; i < enemies.length; i += 1) {
     const e = enemies[i];
     if (e.dead) continue;
-    if (circleHitsAABB(cx, cy, SLAM_RADIUS, e)) damageEnemy(game, e, dmg, false);
+    if (circleHitsAABB(cx, cy, SLAM_RADIUS, e)) damageEnemy(game, e, dmg, false, 'slam');
   }
   // Breakables intersecting the impact break (§24): stone is Raha's to open.
   let broke = false;
@@ -411,7 +411,7 @@ export function useAttack(game, player, enemies, level) {
     for (let i = 0; i < enemies.length; i += 1) {
       const e = enemies[i];
       if (e.dead) continue;
-      if (circleHitsAABB(cx, cy, SHOCKWAVE_RADIUS, e)) damageEnemy(game, e, SHOCKWAVE_DAMAGE, false);
+      if (circleHitsAABB(cx, cy, SHOCKWAVE_RADIUS, e)) damageEnemy(game, e, SHOCKWAVE_DAMAGE, false, 'shockwave');
     }
     addRing(game, cx, cy, SHOCKWAVE_RADIUS, 'rgba(230,57,70,0.4)');
     noteAbilityUse(game, player, 'shockwave');

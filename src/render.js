@@ -12,8 +12,9 @@
 // as the "Light Behind the Castle": an act-driven horizon glow (Act 1
 // pitch black with stars only; Act 2 faint distant glow + tiny castle
 // silhouette on the horizon band; Act 3 clear glow + lightened horizon;
-// 3-5 flicker; the victory moon-rise is owned by the Phase 13 victory
-// screen).
+// 3-5 flicker). Phase 12 authors the §52/§55 payoff: after the choice the
+// moon RISES from behind the castle (drawMoonRise), and the open moon gate
+// glows at the world's end.
 //
 // Scene: sky gradient, deterministic twinkling stars + dark clouds (§55
 // layer 1), the Light Behind the Castle (near-sky glow + distant
@@ -100,6 +101,7 @@ import {
   WIND_SWAY_RATE,
   TORCH_LIGHT_RANGE,
   TORCH_GLOW_ALPHA,
+  MOON_RISE_DURATION,
 } from './constants.js';
 import { STORY_DURATIONS } from './story.js';
 
@@ -1206,6 +1208,165 @@ function drawEnemyOverlays(ctx, e, gameTime) {
   }
 }
 
+// ---- Phase 12 finale entities (§52/§52.2) ----
+function drawPouria(ctx, e, t) {
+  const lean = e.chargeState === 'windup' ? -6 : (e.chargeState === 'charging' ? 8 : 0);
+  const run = e.state === 'run' || e.state === 'walk';
+  const step = run ? Math.sin(e.walkTime * 11) * 7 : 0;
+  const kneel = e.subdued ? 14 : 0;
+  const x = e.x;
+  const y = e.y + kneel;
+  ctx.globalAlpha = e.exposed ? 0.10 : 0.22;
+  ctx.fillStyle = '#3a1f4a';
+  ctx.fillRect(x - 5, y - 6, e.w + 10, e.h + 8);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#1c1424';
+  ctx.fillRect(x + 8 + step * 0.4, y + 44 - kneel, 10, 30 - kneel * 0.5);
+  ctx.fillRect(x + 26 - step * 0.4, y + 44 - kneel, 10, 30 - kneel * 0.5);
+  ctx.fillStyle = e.exposed ? '#4a3a58' : '#2a1e38';
+  ctx.fillRect(x + 6 + lean * 0.4, y + 16, e.w - 12, 32);
+  ctx.fillStyle = e.exposed ? '#6a5478' : '#3a2a4a';
+  ctx.fillRect(x + 8 + lean * 0.4, y + 18, e.w - 16, 6);
+  ctx.fillStyle = e.exposed ? '#d9c8e8' : '#1a1226';
+  ctx.fillRect(x + 12 + lean, y + 2, 20, 15);
+  ctx.fillStyle = '#0a0812';
+  ctx.fillRect(x + 14 + lean, y + 5, 16, 9);
+  ctx.fillStyle = e.exposed ? '#c77dff' : ENEMY_EYE;
+  ctx.fillRect(x + 16 + lean, y + 8, 4, 3);
+  ctx.fillRect(x + 24 + lean, y + 8, 4, 3);
+  const flut = Math.sin(t * 7 + e.x * 0.01) * 4;
+  ctx.fillStyle = '#8a1010';
+  ctx.fillRect(x + 10 + lean, y + 26, 10, 8);
+  ctx.fillRect(x + 2 + lean - Math.abs(flut) * 0.5, y + 28, 10 + flut, 6);
+  ctx.fillStyle = '#c02020';
+  ctx.fillRect(x + 3 + lean - Math.abs(flut) * 0.5, y + 30, 6 + flut * 0.6, 3);
+  const bx = e.facing === 'left' ? x - 4 : x + e.w - 4;
+  const bladeY = e.chargeState === 'windup' || e.chargeState === 'charging' ? y - 6 : y + 10;
+  ctx.fillStyle = '#3a3a4a';
+  ctx.fillRect(bx, bladeY, 6, 34);
+  ctx.fillStyle = '#8a93a8';
+  ctx.fillRect(bx + (e.facing === 'left' ? 0 : 4), bladeY, 2, 34);
+  if (e.invulnerable) {
+    ctx.globalAlpha = 0.35 + 0.2 * Math.sin(t * 8);
+    ctx.strokeStyle = '#c77dff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x + e.w / 2, y + e.h / 2, e.w * 0.9, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawChain(ctx, e, t) {
+  const sway = Math.sin(t * 5 + e.chainIndex * 2.1) * 3;
+  const cx = e.x + e.w / 2;
+  for (let i = 0; i < 4; i += 1) {
+    const segY = e.y + i * (e.h / 4);
+    ctx.fillStyle = i % 2 === 0 ? '#241a30' : '#1c1424';
+    ctx.fillRect(cx - 8 + sway * (i / 3), segY, 16, e.h / 4 - 2);
+  }
+  ctx.fillStyle = '#7a3aa8';
+  ctx.fillRect(cx - 2 + sway, e.y + 4, 4, 4);
+  ctx.fillRect(cx - 2 + sway * 0.6, e.y + e.h / 2, 4, 4);
+  ctx.globalAlpha = 0.30 + 0.12 * Math.sin(t * 6 + e.chainIndex);
+  ctx.strokeStyle = '#c77dff';                  // weak-point halo
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(cx, e.y + e.h / 2, e.w * 0.9, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 1;
+}
+
+function drawQueen(ctx, e, t) {
+  const cx = e.x + e.w / 2;
+  const hoverBob = e.phase === 2 ? Math.sin(t * 2.2) * 3 : 0;
+  const y = e.y + hoverBob;
+  for (let i = 0; i < 3; i += 1) {
+    ctx.globalAlpha = 0.10 + 0.05 * i + 0.04 * Math.sin(t * 2 + i);
+    ctx.fillStyle = '#e8f0ff';
+    ctx.beginPath();
+    ctx.arc(cx, y + e.h / 2, e.w * (0.75 + i * 0.35), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#dce8f8';
+  ctx.fillRect(cx - 16, y + 26, 32, e.h - 26);
+  ctx.fillStyle = '#c9d8ee';
+  ctx.fillRect(cx - 11, y + 30, 22, e.h - 34);
+  ctx.fillStyle = '#eef4ff';
+  ctx.fillRect(cx - 12, y + 18, 24, 14);
+  ctx.fillStyle = '#f2f6ff';
+  ctx.fillRect(cx - 9, y + 2, 18, 16);
+  ctx.fillStyle = '#0a1220';
+  ctx.fillRect(cx - 6, y + 8, 3, 3);
+  ctx.fillRect(cx + 3, y + 8, 3, 3);
+  ctx.fillStyle = '#cfd8ea';
+  ctx.fillRect(cx - 12, y + 4, 4, 34);
+  ctx.fillRect(cx + 8, y + 4, 4, 34);
+  ctx.fillStyle = '#d8b96a';
+  ctx.fillRect(cx - 10, y - 4, 20, 5);
+  ctx.fillRect(cx - 10, y - 9, 4, 5);
+  ctx.fillRect(cx - 2, y - 9, 4, 5);
+  ctx.fillRect(cx + 6, y - 9, 4, 5);
+  if (e.chargeState === 'windup' || e.chargeState === 'charging') {
+    const hx = e.facing === 'left' ? cx - 22 : cx + 16;
+    ctx.fillStyle = '#f2f6ff';
+    ctx.fillRect(hx, y + 14, 8, 12);
+    ctx.globalAlpha = 0.55 + 0.25 * Math.sin(t * 9);
+    ctx.fillStyle = '#e8f0ff';
+    ctx.fillRect(hx - 4, y + 8, 16, 18);
+    ctx.globalAlpha = 1;
+  }
+  if (e.invulnT > 0) {
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 14);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(e.x - 4, y - 6, e.w + 8, e.h + 10);
+    ctx.globalAlpha = 1;
+  }
+  if (e.radialWindup > 0) {
+    const k = e.radialWindup / 0.55;                   // 1 -> 0 countdown
+    ctx.strokeStyle = 'rgba(232,240,255,' + (0.25 + 0.5 * (1 - k)).toFixed(3) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, y + e.h / 2, 150 * (0.55 + 0.45 * (1 - k)), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+}
+
+function drawBossBars(ctx, e) {
+  const cx = e.x + e.w / 2;
+  if (e.bossKind === 'pouria' && e.corruptionHp != null && !e.subdued) {
+    const bw = 52, by = e.y - 16;
+    ctx.fillStyle = '#0a0d14'; ctx.fillRect(cx - bw / 2 - 1, by - 1, bw + 2, 10);
+    ctx.fillStyle = '#2a2f3a'; ctx.fillRect(cx - bw / 2, by, bw, 8);
+    ctx.fillStyle = '#7a3aa8';                        // corruption pool
+    ctx.fillRect(cx - bw / 2, by, bw * Math.max(0, e.corruptionHp / e.maxHp), 5);
+    const rf = Math.max(0, e.realHp / e.maxRealHp);
+    ctx.fillStyle = rf > 0.5 ? '#8a93a8' : '#e63946';// real HP (must stay full)
+    ctx.fillRect(cx - bw / 2, by + 6, bw * rf, 2);
+  } else if (e.bossKind === 'queen') {
+    const bw = 64, by = e.y - 20;
+    ctx.fillStyle = '#0a0d14'; ctx.fillRect(cx - bw / 2 - 1, by - 1, bw + 2, 8);
+    ctx.fillStyle = '#2a2f3a'; ctx.fillRect(cx - bw / 2, by, bw, 6);
+    ctx.fillStyle = '#e8f0ff';                        // captured dawn
+    ctx.fillRect(cx - bw / 2, by, bw * Math.max(0, e.hp / e.phasePools[e.phase - 1]), 6);
+    for (let i = 0; i < e.phasePools.length; i += 1) {  // phase pips
+      ctx.fillStyle = i < e.phase ? '#d8b96a' : '#3a4050';
+      ctx.fillRect(cx - bw / 2 + i * 8, by + 8, 6, 3);
+    }
+  }
+}
+
+function drawBossEntity(ctx, e, t) {
+  if (e.bossKind === 'pouria') drawPouria(ctx, e, t);
+  else if (e.bossKind === 'chain') drawChain(ctx, e, t);
+  else if (e.bossKind === 'queen') drawQueen(ctx, e, t);
+  drawBossBars(ctx, e);
+}
+
 // ---------------------------------------------------------------------------
 // World FX layers (SPEC §21, §50, §57) — Phase 7
 // ---------------------------------------------------------------------------
@@ -1859,9 +2020,11 @@ export function createRenderer(canvas) {
 
   // ---- §55 (amended): the Light Behind the Castle --------------------------
   // Act-driven intensity: 0 in Act 1 (pitch black, stars only), faint in
-  // Act 2, clear in Act 3; chapter 3-5 flickers during the final battle.
+  // Act 2, clear in Act 3; chapter 3-5 flickers during the final battle
+  // (§52) — and burns STEADY once the choice is made and the moon rises.
   // Deterministic composite sines — no randomness (§72).
   function glowIntensity(game, gameTime) {
+    if (game.moonRiseT > 0) return 1.25;             // §55 payoff: risen
     if (game.currentAct < 2) return 0;
     let k = game.currentAct === 2 ? 0.45 : 1.0;
     if (game.currentChapter === '3-5') {
@@ -1907,6 +2070,102 @@ export function createRenderer(canvas) {
       }
       ctx.globalAlpha = 1;
     }
+  }
+
+  // ---- §52/§55 THE MOON RISES (Phase 12 payoff) ----------------------------
+  function drawMoonRise(game, t) {
+    if (!game.moonRiseT || game.moonRiseT <= 0) return;
+    const k = Math.min(1, game.moonRiseT / MOON_RISE_DURATION);
+    const ease = 1 - Math.pow(1 - k, 2);
+    const cx = GLOW_HOLD_X + 140;
+    const cy = GLOW_HORIZON_Y + 26 - ease * (GLOW_HORIZON_Y + 26 - 170);
+    for (let i = 0; i < 3; i += 1) {
+      ctx.globalAlpha = (0.06 + 0.05 * i) * ease;
+      ctx.fillStyle = GLOW_LIGHT;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 58 + i * 26, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = Math.min(1, 0.4 + 0.6 * ease);
+    ctx.fillStyle = GLOW_LIGHT;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 44, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(180,198,226,0.55)';
+    ctx.beginPath();
+    ctx.arc(cx - 14, cy - 8, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx + 10, cy + 12, 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(246,250,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(cx - 6, cy - 14, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- §52 THE MOON GATE (world space) -------------------------------------
+  function drawMoonGate(game, cam, t) {
+    const g = game.moonGate;
+    if (!g) return;
+    if (g.x + 80 < cam.x || g.x - 80 > cam.x + VIEW_W) return;
+    if (g.state === 'closed') {
+      ctx.strokeStyle = '#241a30';
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(g.x - g.r, g.y - g.r * 0.5);
+      ctx.lineTo(g.x + g.r, g.y + g.r * 0.4);
+      ctx.moveTo(g.x - g.r, g.y + g.r * 0.5);
+      ctx.lineTo(g.x + g.r, g.y - g.r * 0.4);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.globalAlpha = 0.22 + 0.08 * Math.sin(t * 1.8);
+      ctx.fillStyle = '#7a3aa8';
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, g.r - 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#2a2f3a';
+      ctx.lineWidth = 10;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, g.r + 2, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      return;
+    }
+    for (let i = 0; i < 3; i += 1) {
+      ctx.globalAlpha = 0.16 + 0.08 * i + 0.05 * Math.sin(t * 2.4 + i);
+      ctx.fillStyle = GLOW_LIGHT;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, g.r + 10 + i * 16, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = '#f4f8ff';
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, g.r - 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#d8e2f2';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(g.x, g.y, g.r + 2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#ffffff';
+    for (let i = 0; i < 5; i += 1) {
+      const a = t * 0.7 + i * (Math.PI * 2 / 5);
+      const rr = g.r + 14 + Math.sin(t * 1.6 + i * 1.9) * 8;
+      ctx.globalAlpha = 0.5 + 0.3 * Math.sin(t * 2 + i);
+      ctx.fillRect(g.x + Math.cos(a) * rr - 1.5, g.y + Math.sin(a) * rr - 1.5, 3, 3);
+    }
+    ctx.globalAlpha = 1;
+    const grad = ctx.createLinearGradient(0, g.y - 170, 0, g.y);
+    grad.addColorStop(0, 'rgba(232,240,255,0)');
+    grad.addColorStop(1, 'rgba(232,240,255,0.14)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(g.x - 22, g.y - 170, 44, 170);
   }
 
   // ---- §55 layer 3: gothic castle + sharp spires + orange windows --------
@@ -2257,6 +2516,21 @@ export function createRenderer(canvas) {
           ctx.stroke();
           ctx.fillStyle = 'rgba(220,228,250,0.4)';
           ctx.fillRect(d.x - 6, d.y + 9, 1.5, 1.5);            // dew drop
+        } else if (d.kind === 'bars') {
+          // §52.2 the prison bars (2-3's glimpse): a dark wall segment with
+          // heavy vertical bars + one bent bar — something almost got out.
+          ctx.fillStyle = '#10141f';
+          ctx.fillRect(d.x - 34, d.y - 96, 68, 96);           // wall recess
+          ctx.fillStyle = '#05070f';
+          ctx.fillRect(d.x - 28, d.y - 90, 56, 90);           // cell dark
+          ctx.fillStyle = '#2e3852';
+          for (let i = 0; i < 5; i += 1) {
+            const bend = i === 2 ? 5 : 0;                     // the bent bar
+            ctx.fillRect(d.x - 24 + i * 11 + bend, d.y - 90, 6, 90);
+          }
+          ctx.fillStyle = '#3a4462';                          // bar highlights
+          ctx.fillRect(d.x - 24, d.y - 90, 2, 90);
+          ctx.fillRect(d.x + 20, d.y - 90, 2, 90);
         } else if (d.kind === 'torch') {
           drawDressingTorch(ctx, d, t);
         }
@@ -2386,6 +2660,33 @@ export function createRenderer(canvas) {
       }
     }
 
+    if (story.chapterComplete) {
+      const a = storyAlpha(now, story.chapterComplete.until,
+                           STORY_DURATIONS.chapterComplete, 0.35, 0.6);
+      if (a > 0) {
+        ctx.globalAlpha = a;
+        const barH = Math.round(64 * Math.min(1, a * 1.4));
+        ctx.fillStyle = '#04050a';
+        ctx.fillRect(0, 0, LOGICAL_W, barH);
+        ctx.fillRect(0, LOGICAL_H - barH, LOGICAL_W, barH);
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillStyle = '#8fd8c8';
+        ctx.textAlign = 'center';
+        ctx.fillText('CHAPTER COMPLETE', LOGICAL_W / 2, 300);
+        ctx.font = 'bold 19px sans-serif';
+        ctx.fillStyle = '#cdd9f0';
+        ctx.fillText(story.chapterComplete.title, LOGICAL_W / 2, 324);
+        ctx.font = 'italic 15px sans-serif';
+        ctx.fillStyle = '#a8b4cc';
+        const lines = wrapLines(ctx, story.chapterComplete.text, 700, 2);
+        for (let i = 0; i < lines.length; i += 1) {
+          ctx.fillText(lines[i], LOGICAL_W / 2, 350 + i * 20);
+        }
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+      }
+    }
+
     // -- inscription plate (~5 s, §67) ----------------------------------------
     if (story.inscription) {
       const a = storyAlpha(now, story.inscription.until, STORY_DURATIONS.inscription, 0.35, 0.5);
@@ -2484,10 +2785,15 @@ export function createRenderer(canvas) {
     // §28 — not authored). Render-only culling (§42/§78) against the zoomed
     // view; gameplay entities are NOT removed, merely skipped. Mini-boss
     // art scales by the authored §50 multiplier (hitbox and art agree).
+    // Phase 12 finale entities (§52/§52.2) carry their own art + bars +
     for (let i = 0; i < enemies.length; i += 1) {
       const e = enemies[i];
       if (e.dead) continue;
-      if (e.x + e.w < cam.x - 60 || e.x > cam.x + VIEW_W + 60) continue;
+      if (e.x + e.w < cam.x - 120 || e.x > cam.x + VIEW_W + 120) continue;
+      if (e.boss) {
+        drawBossEntity(ctx, e, game.gameTime);
+        continue;
+      }
       if (e.type === 'patroller') drawPatroller(ctx, e);
       else if (e.type === 'chaser') drawChaser(ctx, e);
       else if (e.type === 'armored') drawArmored(ctx, e);
@@ -2497,19 +2803,11 @@ export function createRenderer(canvas) {
   }
 
   function drawPlayer(game, player, level) {
-    // Render-only culling (§78): never draw what the camera cannot see;
-    // gameplay entities are NOT removed, merely skipped in presentation.
     if (player.x + player.w < game.camera.x - 20
         || player.x > game.camera.x + VIEW_W + 20) return;
-    // §57 amended: soft ellipse drop shadow under the active character
-    // (before the sprite, so the character stands ON the shadow).
     drawDropShadow(ctx, player, level);
-    // §56 Phase 10: the active character's subtle self-glow — the scene's
-    // own light source, behind the sprite.
     drawSelfGlow(ctx, player, game);
-    // §23 dash afterimages trail behind the active sprite.
     drawDashTrail(ctx, player, game);
-    // §22: the sprite flashes ~20 Hz while invulnerable.
     const blink = player.invuln > 0 && Math.floor(game.gameTime * 20) % 2 === 0;
     if (blink) ctx.globalAlpha = 0.35;
     if (player.character === 'sara') drawSara(ctx, player, game);
@@ -2517,17 +2815,12 @@ export function createRenderer(canvas) {
     else if (player.character === 'aram') drawAram(ctx, player, game);
     else drawPlayerPlaceholder(ctx, player);
     if (blink) ctx.globalAlpha = 1;
-    // §55 Phase 10: rim light from the nearest torch, over the sprite edge.
     drawRimLight(ctx, player, level, game);
-    // §25.2 Shield aura wraps the sprite while active.
     drawShieldAura(ctx, player, game);
-    // §57 Phase 10: the special-ability cooldown ring around the sprite.
     drawCooldownRing(ctx, player);
   }
 
   // ---- §55 layer 5: foreground grass (fastest layer, screen-bottom anchor)
-  // §56 Phase 10 WIND: blades sway on the render clock (deterministic sine
-  // per blade — no randomness, §72; gentle ±WIND_SWAY_PX).
   function drawGrass(cam, t) {
     const offX = cam.x * PARALLAX_GRASS;
     ctx.fillStyle = GRASS_TONE;
@@ -2550,8 +2843,6 @@ export function createRenderer(canvas) {
   }
 
   // ---- atmosphere (amended §55 Phase 10): fog sheet between the background
-  // and midground bands — distant objects read darker through it
-  // (atmospheric perspective). Cached gradient; logical space.
   let fogSheetGradient = null;
   function drawFogSheet() {
     if (!fogSheetGradient) {
@@ -2565,9 +2856,6 @@ export function createRenderer(canvas) {
   }
 
   // ---- §56 Phase 10 DISTANT LIGHTNING: VISUAL ONLY — never a gameplay
-  // effect. Act 2+; deterministic schedule (period + fixed phase): two
-  // stacked horizon light bands for LIGHTNING_FLASH_T seconds every
-  // LIGHTNING_PERIOD. Drawn right after the sky/stars, before the castle.
   function drawLightning(game, t) {
     if (game.currentAct < 2) return;
     const phase = t % LIGHTNING_PERIOD;
@@ -2617,26 +2905,9 @@ export function createRenderer(canvas) {
     ctx.fillRect(LOGICAL_W - 70, 0, 70, LOGICAL_H);
   }
 
-  // Full §55 layer stack, back to front. The camera (§53) is only READ
-  // here (§70): the world layer renders through the global ZOOM transform
-  // (§7/§53) — ctx.scale(ZOOM) then translate by the camera position — so
-  // the visible gameplay window is VIEW_W x VIEW_H world units; each
-  // parallax layer offsets by cam * its factor in logical canvas space.
-  // Phase 7 adds the §54 screen-shake offset (deterministic decaying
-  // oscillation — presentation only, never fed back into gameplay) and the
-  // world FX layers (gates under entities, projectiles/particles above).
-  // Phase 9 adds the collectible layer (gates/rings → collectibles →
-  // enemies → player) and the §65 HUD on top of the vignette.
-  // Phase 10 adds: §56 distant lightning + the §55 fog sheet between the
-  // background and midground bands (atmospheric perspective), §55 set
-  // dressing + torch glows on the ground plane, per-kind particle art
-  // (§56/§57), wind-swayed foliage, and the §57 damage flash above the
-  // world (under fog/vignette, above the slow-mo tint).
   function render(game, level, player, enemies, collectibles) {
     const cam = game.camera;
     const t = game.gameTime;
-    // §54: offset = mag * exp(-30 * age) * oscillation — the 30/s decay
-    // envelope bounds every shake well inside its authored duration.
     let shakeX = 0;
     let shakeY = 0;
     if (game.shake) {
@@ -2653,6 +2924,7 @@ export function createRenderer(canvas) {
     drawStars(cam, t);
     drawClouds(cam);
     drawLightBehindCastle(cam, game, t);               // amended §55 canon
+    drawMoonRise(game, t);                             // §52/§55 payoff
     drawCastle(cam, game, t);
     drawFogSheet();                                    // §55 Phase 10 band
     drawTrees(cam, t);                                 // §56 wind-swayed
@@ -2664,6 +2936,7 @@ export function createRenderer(canvas) {
     drawDressing(ctx, level, cam, t);                  // §55 Phase 10 dressing
     drawStoryProps(ctx, level, cam, t, game);           // §67/§68 stones + NPC
     drawGates(ctx, level.gates, cam, t);               // §50 gates
+    drawMoonGate(game, cam, t);                        // §52 moon gate
     drawRings(ctx, game.rings, cam);                   // §24 impact rings
     drawCollectibles(ctx, collectibles, cam, t);       // §48/§58 (Phase 9)
     drawEnemies(game, enemies || [], cam);

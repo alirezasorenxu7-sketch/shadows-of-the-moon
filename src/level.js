@@ -4,10 +4,14 @@
 // ACT/CHAPTER STRUCTURE (2026-09-28 scope amendment):
 //   3 acts × 5 chapters = 15 chapters, contiguous, ~50000px world.
 //   Each chapter: { id, name, platforms, enemies, collectibles, checkpoint,
-//   miniBoss, dressing, inscription, completeText } (§51). Chapters 1-1 ..
-//   1-3 are authored here as the reference examples; 1-4 .. 3-5 carry
-//   system placeholders (authored: false — length + chapter-start checkpoint
-//   only) and are fully authored in Phase 12.
+//   miniBoss | specialChallenge | finalBattle, dressing, inscription,
+//   completeText } (§51). Chapters 1-1 .. 1-3 are authored as explicit
+//   object literals; 1-4 .. 3-5 (Phase 12) author through the deterministic
+//   `ch()` factory below — identical frozen output, compact tables.
+//
+// PHASE 12 FINAL CONTENT: every remaining chapter is authored — 2-5 carries
+//   the §52.2 Pouria ESCAPE special challenge, 3-4 the non-lethal FINAL
+//   FIGHT, 3-5 the Queen of Light final battle + the choice + moon gate.
 //
 // PHASE 11 STORYTELLING PLACEMENT (§67/§68): authored chapters carry
 //   stones     [{id, x, y, text}]  — 3 per chapter (intro + two mid)
@@ -15,8 +19,9 @@
 //   npc        {id, x, y, dialogue} — 1 per chapter (§68 Aram-only)
 //   storyBeat  {key, x}             — positioned cinematic beats (1-2)
 //   The TEXTS all live in src/story.js (the §67 corpus covers all 15
-//   chapters day one); unauthored chapters get their placement with the
-//   Phase 12 chapter authoring.
+//   chapters); Phase 12 places every chapter's props on enemy-safe
+//   dead zones (chaser trigger bands avoided; castle chapters keep ≥50px
+//   from patrol bounds where geometry is tight).
 //
 // COORDINATE CONVENTIONS (world pixels, absolute):
 //   platforms  {x, y, w, h}            — top-left, solid AABB (breakable:
@@ -31,17 +36,12 @@
 //                                         amended §18 scale pass)
 //   miniBoss   {id, template, hp, scale, pattern, reward, arena}
 //
-// The 12 placeholder chapters are produced by a DETERMINISTIC factory
-// (unauthoredChapter below) — static literals in spirit (§70), zero
-// randomness: lengths, names, and checkpoints are fixed literals in the
-// table passed to it.
+// The 12 Phase-12 chapters author through the DETERMINISTIC factory (ch)
+// below — static literals in spirit (§70/§72), zero randomness.
 
-// §67 narrative corpus (Phase 11): the intro inscription + completeText of
-// EVERY chapter (all 15) come from the story module — the §51 fields are
-// filled day one; the world PLACEMENT for unauthored chapters arrives with
-// Phase 12.
+// §67 corpus (Phase 11): every chapter's inscription + completeText come
+// from story.js; Phase 12 places the world-side story props.
 import { INSCRIPTIONS, FLASHBACKS, NPC_DIALOGUES, COMPLETE_TEXTS } from './story.js';
-
 // Ground baseline for all Phase-5-authored chapters (camera rest anchor
 // CAMERA_REST_GROUND_SCREEN_Y matches this line — see constants.js).
 const GROUND_Y = 656;
@@ -50,33 +50,83 @@ const GROUND_H = 64;
 // authored spawn tops sit at GROUND_Y - 62 (feet exactly on the ground line).
 const SPAWN_Y = GROUND_Y - 62;           // 594 — respawn/enemy authored top
 
-// Deterministic factory for not-yet-authored chapters (Phase 12 re-authors).
-// Keeps the 15-chapter system complete: length, bounds, and the auto
-// chapter-start checkpoint (§44) exist for every chapter from day one.
-function unauthoredChapter(id, act, name, length, startX) {
+// Deterministic factory for the Phase-12 authored chapters (1-4 .. 3-5). The
+// compact tuple tables below convert through it into the SAME frozen literal
+// objects 1-1..1-3 carry — static literals in spirit (§70/§72, the Phase-5
+// placeholder precedent): zero randomness, every value a fixed literal here.
+//   p : [x, y, w, h] platforms ([x,y,w,h,'brkId'] = breakable)
+//   e : [suffix, type, x, y, minX?, maxX?] enemies (patrol optional)
+//   c : [suffix, kind, x, y] collectibles (CENTER points)
+//   dr: [kind, x, s?] dressing (torch/cobweb carry their own geometry)
+//   st: [x] or [x, y] inscription stones — texts from the §67 corpus
+//   mb: [template, hp, scale, pattern, arenaX, arenaW]  §50 mini-boss
+//   mid: [[triggerX, respawnX]] mid-chapter checkpoints (§44)
+//   sc / fb: §52.2 special challenges + the §52 final battle (below)
+function ch(id, act, name, d) {
+  const prefix = `c${id.replace('-', '_')}`;
+  const platforms = d.p.map((t) => (t[4]
+    ? Object.freeze({ x: t[0], y: t[1], w: t[2], h: t[3], breakable: true, id: `${prefix}_${t[4]}` })
+    : Object.freeze({ x: t[0], y: t[1], w: t[2], h: t[3] })));
+  const enemies = d.e.map((t) => Object.freeze({
+    id: `${prefix}_${t[0]}`, type: t[1], x: t[2], y: t[3],
+    patrol: t[4] != null ? Object.freeze({ minX: t[4], maxX: t[5] }) : undefined,
+  }));
+  const collectibles = d.c.map((t) => Object.freeze({
+    id: `${prefix}_${t[0]}`, kind: t[1], x: t[2], y: t[3],
+  }));
+  const dressing = d.dr.map((t) => Object.freeze(
+    t[0] === 'cobweb' ? { kind: t[0], x: t[1], y: t[2] } : { kind: t[0], x: t[1], y: GROUND_Y, s: t[2] || 0 }));
+  const stones = d.st.map((t, i) => Object.freeze({
+    id: `${prefix}_stone_00${i + 1}`, x: t[0], y: t[1] != null ? t[1] : GROUND_Y,
+    text: INSCRIPTIONS[id][i],
+  }));
+  const midCheckpoints = (d.mid || []).map((t) => Object.freeze({
+    id: `${prefix}_cp_mid`,
+    trigger: Object.freeze({ x: t[0], y: 0, w: 40, h: 720 }),
+    respawn: Object.freeze({ x: t[1], y: SPAWN_Y }),
+  }));
+  const mb = d.mb ? Object.freeze({
+    id: `${prefix}_miniboss`, template: d.mb[0], hp: d.mb[1], scale: d.mb[2],
+    pattern: d.mb[3], reward: 'heart-fragment',
+    arena: Object.freeze({ x: d.mb[4], w: d.mb[5] }),
+  }) : null;
+  let specialChallenge = null;
+  if (d.sc) {
+    if (d.sc[0] === 'pouria-escape') {
+      specialChallenge = Object.freeze({
+        kind: 'pouria-escape', id: `${prefix}_pouria`, spawnX: d.sc[1],
+      });
+    } else {
+      specialChallenge = Object.freeze({
+        kind: 'pouria-fight', id: `${prefix}_pouria`,
+        arenaX: d.sc[1], arenaW: d.sc[2], corruptionHp: d.sc[3], realHp: d.sc[4],
+      });
+    }
+  }
+  const finalBattle = d.fb ? Object.freeze({
+    id: `${prefix}_queen`, arenaX: d.fb[0], arenaW: d.fb[1],
+    gateX: d.fb[2], gateY: d.fb[3], phases: Object.freeze(d.fb[4]),
+  }) : null;
   return Object.freeze({
-    id, act, name, length, startX,
-    authored: false,
-    groundY: GROUND_Y,
-    platforms: Object.freeze([]),
-    enemies: Object.freeze([]),
-    collectibles: Object.freeze([]),
+    id, act, name, length: 3300, startX: d.s, authored: true, groundY: GROUND_Y,
+    platforms: Object.freeze(platforms),
+    enemies: Object.freeze(enemies),
+    collectibles: Object.freeze(collectibles),
     checkpoint: Object.freeze({
-      id: `c${id.replace('-', '_')}_cp_start`,
-      trigger: Object.freeze({ x: startX, y: 0, w: 48, h: 720 }),
-      respawn: Object.freeze({ x: startX + 80, y: SPAWN_Y }),
+      id: `${prefix}_cp_start`,
+      trigger: Object.freeze({ x: d.s, y: 0, w: 48, h: 720 }),
+      respawn: Object.freeze({ x: d.s + 80, y: SPAWN_Y }),
     }),
-    midCheckpoints: Object.freeze([]),
-    miniBoss: null,
-    dressing: Object.freeze([]),   // §55 Phase 10: authored with the chapter
-    // §67/§51: texts are authored for ALL chapters (story.js corpus); the
-    // intro stone / flashback / NPC PLACEMENT for unauthored chapters
-    // arrives with the Phase 12 chapter authoring.
+    midCheckpoints: Object.freeze(midCheckpoints),
+    miniBoss: mb,
+    specialChallenge,
+    finalBattle,
+    dressing: Object.freeze(dressing),
     inscription: INSCRIPTIONS[id][0],
     completeText: COMPLETE_TEXTS[id],
-    stones: Object.freeze([]),
-    flashback: null,
-    npc: null,
+    stones: Object.freeze(stones),
+    flashback: Object.freeze({ id: `${prefix}_fb_001`, x: d.fbx, text: FLASHBACKS[id] }),
+    npc: Object.freeze({ id: `${prefix}_npc_001`, x: d.npc, y: GROUND_Y, dialogue: NPC_DIALOGUES[id] }),
     storyBeat: null,
   });
 }
@@ -89,15 +139,12 @@ export const LEVEL_DATA = Object.freeze({
     Object.freeze({ act: 3, title: 'Heart of Darkness', theme: 'castle' }),
   ]),
 
-  // Furthest chapter with authored content. Phase 12 authors 1-4 .. 3-5.
-  authoredThrough: '1-3',
+  // Furthest chapter with authored content. Phase 12 authored 1-4 .. 3-5 —
+  // the whole world is live and the interim dev end wall is gone.
+  authoredThrough: '3-5',
 
   chapters: Object.freeze([
-    // ---- Chapter 1-1 "First Steps in Midnight" (tutorial) ----------------
-    // Gap-free spawn stretch; the first guarded gap sits late in the chapter
-    // (x 2600..2820) as the final tutorial lesson before the mini-boss
-    // plateau. The spawn area (x 260..360) is deliberately platform-free
-    // above ground so the §79.1 double-jump ceiling is unobstructed.
+    // 1-1 "First
     Object.freeze({
       id: '1-1', act: 1, name: 'First Steps in Midnight',
       length: 3400, startX: 0, authored: true, groundY: GROUND_Y,
@@ -166,13 +213,7 @@ export const LEVEL_DATA = Object.freeze({
       storyBeat: null,
     }),
 
-    // ---- Chapter 1-2 "The Deepening Wood" ---------------------------------
-    // Two guarded gaps (180px, 220px with a mid-gap stepping stone), an
-    // elevated route over the third stretch, and a mid-chapter checkpoint
-    // (§44 designer discretion) after the second gap. Phase 7 adds the
-    // first §50 environmental gate: a MAGIC BARRIER vault pocket on the
-    // elevated route (optional loot — only Aram's magic shot dispels it;
-    // the ground route below stays open, so no route ever soft-locks).
+    // 1-2 "The
     Object.freeze({
       id: '1-2', act: 1, name: 'The Deepening Wood',
       length: 3600, startX: 3400, authored: true, groundY: GROUND_Y,
@@ -254,13 +295,7 @@ export const LEVEL_DATA = Object.freeze({
       storyBeat: Object.freeze({ key: 'beat12', x: 3700 }),
     }),
 
-    // ---- Chapter 1-3 "The Edge of the Forest" ------------------------------
-    // A guarded gap, the first breakable platform (the §50 stone-wall gate
-    // — only Raha's slam breaks it; optional route piece), a three-step
-    // climb tower, and the act's last mini-boss plateau before the road.
-    // Phase 7 adds the §50 TIME-LOCKED DOOR: the tower-top pocket holding
-    // the crystal opens only while Aram's slow-motion is active nearby
-    // (optional loot — the ground route stays open; no soft-lock).
+    // 1-3 "The
     Object.freeze({
       id: '1-3', act: 1, name: 'The Edge of the Forest',
       length: 3400, startX: 7000, authored: true, groundY: GROUND_Y,
@@ -332,21 +367,344 @@ export const LEVEL_DATA = Object.freeze({
       storyBeat: null,
     }),
 
-    // ---- Chapters 1-4 .. 3-5 — system placeholders (authored in Phase 12) --
-    // Lengths are fixed literals: 12 x 3300 = 39600; with 1-1..1-3
-    // (3400 + 3600 + 3400 = 10400) the world is EXACTLY 50000px.
-    unauthoredChapter('1-4', 1, 'The Crossing', 3300, 10400),
-    unauthoredChapter('1-5', 1, 'Three Strangers', 3300, 13700),
-    unauthoredChapter('2-1', 2, 'The Dark Road', 3300, 17000),
-    unauthoredChapter('2-2', 2, "Wolves' Rest", 3300, 20300),
-    unauthoredChapter('2-3', 2, 'The Old Bridge', 3300, 23600),
-    unauthoredChapter('2-4', 2, 'Ruined Waystation', 3300, 26900),
-    unauthoredChapter('2-5', 2, 'Crossroads of the Lost', 3300, 30200),
-    unauthoredChapter('3-1', 3, 'Heart of Darkness', 3300, 33500),
-    unauthoredChapter('3-2', 3, 'The Outer Walls', 3300, 36800),
-    unauthoredChapter('3-3', 3, 'The Courtyard of Echoes', 3300, 40100),
-    unauthoredChapter('3-4', 3, 'The Long Hall', 3300, 43400),
-    unauthoredChapter('3-5', 3, 'The Queen of Light', 3300, 46700),
+    // 1-4 "The
+    ch('1-4', 1, 'The Crossing', {
+      s: 10400,
+      p: [
+        [10400, 656, 1150, 64], [11850, 656, 1000, 64], [13030, 656, 670, 64],
+        [10800, 540, 120, 24], [11050, 440, 120, 24],
+        [12100, 520, 140, 24], [12350, 400, 120, 24], [12900, 560, 70, 24],
+      ],
+      e: [
+        ['enemy_001', 'patroller', 10700, 594, 10600, 11000],
+        ['enemy_002', 'patroller', 12150, 458, 12110, 12220],
+        ['enemy_003', 'patroller', 12400, 594, 12250, 12650],
+      ],
+      c: [
+        ['coin_001', 'coin', 10500, 610], ['coin_002', 'coin', 10900, 610],
+        ['coin_003', 'coin', 11700, 540], ['coin_004', 'coin', 12200, 610],
+        ['coin_005', 'coin', 12700, 610], ['coin_006', 'rareCoin', 12410, 360],
+        ['health_001', 'health', 13150, 610],
+      ],
+      mid: [[11850, 11910]],
+      mb: ['armored', 7, 1.4, 'telegraph-charge', 13050, 600],
+      dr: [
+        ['statue', 10520, 2], ['torch', 11150], ['bones', 11300, 1],
+        ['fence', 11900, 2], ['statue', 12200, 4], ['torch', 12750],
+        ['banner', 13060, 0],       ],
+      st: [[10550], [11950], [12700]], fbx: 11150, npc: 11350,
+    }),
+
+    // 1-5 "Three
+    ch('1-5', 1, 'Three Strangers', {
+      s: 13700,
+      p: [
+        [13700, 656, 900, 64], [14800, 656, 1100, 64], [16120, 656, 880, 64],
+        [14000, 520, 110, 24], [14300, 410, 100, 24],
+        [15000, 540, 120, 24], [15250, 430, 110, 24], [15550, 320, 100, 24],
+        [15960, 560, 70, 24], [16040, 480, 70, 24],
+      ],
+      e: [
+        ['enemy_001', 'patroller', 14100, 594, 13950, 14400], ['enemy_002', 'chaser', 15250, 594],
+        ['enemy_003', 'chaser', 15650, 594],
+      ],
+      c: [
+        ['coin_001', 'coin', 13900, 610], ['coin_002', 'coin', 14450, 610],
+        ['coin_003', 'coin', 14700, 540], ['coin_004', 'coin', 15100, 610],
+        ['coin_005', 'coin', 15850, 610], ['coin_006', 'rareCoin', 15600, 280],
+        ['health_001', 'health', 16500, 610],
+      ],
+      mid: [[16120, 16180]],
+      mb: ['brute', 9, 1.7, 'telegraph-radial-burst', 16400, 560],
+      dr: [
+        ['bones', 13800, 2], ['statue', 14050, 5], ['torch', 14450],
+        ['cobweb', 14310, 434], ['bones', 14950, 0], ['statue', 15300, 6],
+        ['torch', 15850], ['banner', 16150, 2], ['torch', 16450],       ],
+      st: [[13800], [14830], [16350]], fbx: 14500, npc: 16200,
+    }),
+
+    // 2-1 "The
+    ch('2-1', 2, 'The Dark Road', {
+      s: 17000,
+      p: [
+        [17000, 656, 1200, 64], [18390, 656, 1200, 64], [19760, 656, 540, 64],
+        [17400, 540, 130, 24], [17650, 440, 120, 24], [18600, 530, 140, 24], [18850, 420, 120, 24],
+        [19460, 476, 26, 180, 'brk_001'],
+      ],
+      e: [
+        ['enemy_001', 'armored', 17500, 591, 17300, 17800], ['enemy_002', 'chaser', 18850, 594],
+        ['enemy_003', 'armored', 19250, 591, 19100, 19420],
+      ],
+      c: [
+        ['coin_001', 'coin', 17150, 610], ['coin_002', 'coin', 17900, 610],
+        ['coin_003', 'coin', 18300, 560], ['coin_004', 'coin', 18700, 610],
+        ['coin_005', 'rareCoin', 18910, 380], ['coin_006', 'coin', 19350, 610],
+        ['coin_007', 'rareCoin', 19500, 610], ['health_001', 'health', 19555, 610],
+      ],
+      mb: ['armored', 8, 1.5, 'telegraph-charge', 19820, 440],
+      dr: [
+        ['fence', 17100, 3], ['torch', 17600], ['bones', 18000, 1],
+        ['banner', 18300, 3], ['fence', 18650, 1], ['torch', 19150],
+        ['statue', 19570, 2], ['torch', 19850],       ],
+      st: [[17150], [18470], [18040]], fbx: 17860, npc: 18140,
+    }),
+
+    // 2-2 "Wolves'
+    ch('2-2', 2, "Wolves' Rest", {
+      s: 20300,
+      p: [
+        [20300, 656, 1000, 64], [21490, 656, 1100, 64], [22760, 656, 540, 64],
+        [20600, 540, 120, 24], [20850, 430, 110, 24], [21050, 330, 100, 24],
+        [21700, 520, 130, 24], [21950, 410, 120, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 20700, 591, 20550, 20800],
+        ['enemy_002', 'brute', 20950, 578, 20850, 21050], ['enemy_003', 'chaser', 21800, 594],
+        ['enemy_004', 'armored', 22300, 591, 22150, 22450],
+      ],
+      c: [
+        ['coin_001', 'coin', 20400, 610], ['coin_002', 'coin', 20950, 610],
+        ['coin_003', 'coin', 21400, 560], ['coin_004', 'coin', 21850, 610],
+        ['coin_005', 'coin', 22400, 610], ['coin_006', 'rareCoin', 21100, 290],
+        ['coin_007', 'rareCoin', 22010, 370], ['health_001', 'health', 22850, 610],
+      ],
+      mb: ['brute', 8, 1.6, 'telegraph-radial-burst', 22800, 460],
+      dr: [
+        ['bones', 20400, 2], ['fence', 20600, 0], ['torch', 21000],
+        ['cobweb', 20870, 454], ['bones', 21550, 1], ['statue', 22050, 3],
+        ['torch', 22500], ['fence', 22800, 2], ['torch', 22950], ['banner', 23150, 5],
+      ],
+      st: [[20400], [21520], [21250]], fbx: 22520, npc: 21150,
+    }),
+
+    // 2-3 "The
+    ch('2-3', 2, 'The Old Bridge', {
+      s: 23600,
+      p: [
+        [23600, 656, 700, 64], [24300, 560, 280, 24], [24690, 560, 280, 24], [25080, 560, 220, 24],
+        [25300, 656, 1000, 64], [26470, 656, 430, 64], [24380, 460, 100, 24], [24700, 370, 100, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 23900, 591, 23750, 24150], ['enemy_002', 'chaser', 24800, 498],
+        ['enemy_003', 'chaser', 26200, 594],
+      ],
+      c: [
+        ['coin_001', 'coin', 23700, 610], ['coin_002', 'coin', 24450, 520],
+        ['coin_003', 'coin', 24850, 520], ['coin_004', 'rareCoin', 24750, 330],
+        ['coin_005', 'coin', 25500, 610], ['coin_006', 'coin', 25900, 610],
+        ['coin_007', 'rareCoin', 26200, 560], ['health_001', 'health', 26550, 610],
+      ],
+      mid: [[25300, 25360]],
+      mb: ['armored', 8, 1.5, 'telegraph-charge', 26510, 370],
+      dr: [
+        ['torch', 23700], ['fence', 23950, 1], ['bones', 24250, 0],
+        ['cobweb', 24740, 390], ['torch', 25450], ['bars', 25680],
+        ['statue', 25850, 6], ['bones', 25950, 2], ['torch', 26200],
+        ['banner', 26520, 6],       ],
+      st: [[23700], [25380], [25130]], fbx: 25680, npc: 25520,
+    }),
+
+    // 2-4 "Ruined
+    ch('2-4', 2, 'Ruined Waystation', {
+      s: 26900,
+      p: [
+        [26900, 656, 1100, 64], [28190, 656, 1000, 64], [29360, 656, 840, 64],
+        [27200, 540, 140, 24], [27450, 440, 130, 24], [27150, 340, 120, 24],
+        [28400, 520, 130, 24], [28650, 410, 120, 24], [27600, 476, 28, 180, 'brk_001'],
+      ],
+      e: [
+        ['enemy_001', 'armored', 27300, 591, 27150, 27500], ['enemy_002', 'chaser', 28400, 594],
+        ['enemy_003', 'armored', 28800, 591, 28650, 28950],
+      ],
+      c: [
+        ['coin_001', 'coin', 27000, 610], ['coin_002', 'coin', 27650, 610],
+        ['coin_003', 'rareCoin', 27750, 610], ['coin_004', 'rareCoin', 28710, 370],
+        ['coin_005', 'coin', 28250, 610], ['coin_006', 'coin', 28750, 610],
+        ['health_001', 'health', 27860, 610], ['coin_007', 'coin', 29500, 610],
+      ],
+      mid: [[28190, 28250]],
+      mb: ['brute', 9, 1.6, 'telegraph-radial-burst', 29400, 760],
+      dr: [
+        ['fence', 27000, 2], ['torch', 27400], ['bones', 27700, 1],
+        ['statue', 27900, 7], ['cobweb', 27470, 454], ['banner', 28250, 0],
+        ['fence', 28500, 3], ['torch', 28950],         ['torch', 29450], ['statue', 30050, 5],
+      ],
+      st: [[27000], [29070], [27850]], fbx: 27830, npc: 27960,
+    }),
+
+    // 2-5 "Crossroads
+    ch('2-5', 2, 'Crossroads of the Lost', {
+      s: 30200,
+      p: [
+        [30200, 656, 800, 64], [31180, 656, 620, 64], [31990, 656, 560, 64], [32720, 656, 780, 64],
+        [31040, 560, 70, 24], [31830, 560, 70, 24], [32580, 560, 70, 24],
+        [31300, 540, 110, 24], [32100, 520, 120, 24], [32850, 540, 110, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 31550, 591, 31450, 31750], ['enemy_002', 'chaser', 32300, 594],
+        ['enemy_003', 'armored', 33050, 591, 32900, 33200],
+      ],
+      c: [
+        ['coin_001', 'coin', 30400, 610], ['coin_002', 'coin', 30900, 560],
+        ['coin_003', 'coin', 31400, 610], ['coin_004', 'coin', 32050, 610],
+        ['coin_005', 'coin', 32650, 560], ['coin_006', 'rareCoin', 32160, 480],
+        ['health_001', 'health', 32800, 610], ['coin_007', 'coin', 33250, 610],
+      ],
+      mid: [[31990, 32050]],
+      sc: ['pouria-escape', 31300],
+      dr: [
+        ['banner', 30450, 7], ['bones', 30700, 2], ['torch', 30950],
+        ['statue', 30990, 8], ['torch', 31700], ['bones', 32000, 1],
+        ['fence', 32400, 0], ['torch', 32650], ['statue', 33000, 9], ['banner', 33300, 8],
+      ],
+      st: [[30250], [30450], [33400]], fbx: 30650, npc: 30850,
+    }),
+
+    // 3-1 "Heart
+    ch('3-1', 3, 'Heart of Darkness', {
+      s: 33500,
+      p: [
+        [33500, 656, 1100, 64], [34790, 656, 1100, 64], [36060, 656, 740, 64],
+        [33800, 540, 130, 24], [34050, 430, 120, 24], [33850, 330, 110, 24],
+        [35000, 520, 140, 24], [35250, 400, 130, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 33850, 591, 33700, 34000],
+        ['enemy_002', 'brute', 34350, 578, 34250, 34500], ['enemy_003', 'chaser', 35050, 594],
+        ['enemy_004', 'armored', 35550, 591, 35400, 35700],
+      ],
+      c: [
+        ['coin_001', 'coin', 33600, 610], ['coin_002', 'coin', 34250, 610],
+        ['coin_003', 'coin', 34850, 560], ['coin_004', 'coin', 35300, 610],
+        ['coin_005', 'coin', 35800, 610], ['coin_006', 'rareCoin', 35310, 360],
+        ['coin_007', 'rareCoin', 33910, 290], ['health_001', 'health', 36200, 610],
+      ],
+      mb: ['brute', 9, 1.7, 'telegraph-radial-burst', 36120, 640],
+      dr: [
+        ['torch', 33650], ['statue', 33950, 10], ['banner', 34350, 9],
+        ['bones', 34550, 2], ['torch', 34800], ['fence', 35100, 4],
+        ['statue', 35450, 11], ['cobweb', 35310, 424], ['torch', 35850],
+        ['banner', 36150, 10], ['torch', 36450],       ],
+      st: [[33600], [34050], [35790]], fbx: 34550, npc: 34150,
+    }),
+
+    // 3-2 "The
+    ch('3-2', 3, 'The Outer Walls', {
+      s: 36800,
+      p: [
+        [36800, 656, 900, 64], [37890, 656, 900, 64], [39400, 656, 700, 64],
+        [37100, 540, 120, 24], [37350, 440, 110, 24], [38100, 520, 130, 24], [38350, 410, 120, 24],
+        [38820, 560, 130, 24], [39070, 470, 130, 24], [39320, 380, 130, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 37200, 591, 37000, 37400], ['enemy_002', 'chaser', 38150, 594],
+        ['enemy_003', 'brute', 38500, 578, 38400, 38650],
+        ['enemy_004', 'patroller', 39120, 408, 39070, 39200],
+      ],
+      c: [
+        ['coin_001', 'coin', 36900, 610], ['coin_002', 'coin', 37500, 610],
+        ['coin_003', 'coin', 37950, 560], ['coin_004', 'coin', 38200, 610],
+        ['coin_005', 'rareCoin', 38410, 370], ['coin_006', 'coin', 38900, 520],
+        ['coin_007', 'rareCoin', 39380, 340], ['coin_008', 'coin', 39650, 610],
+        ['health_001', 'health', 39750, 610],
+      ],
+      mid: [[39400, 39440]],
+      mb: ['armored', 9, 1.6, 'telegraph-charge', 39500, 560],
+      dr: [
+        ['torch', 36900], ['banner', 37200, 11], ['statue', 37650, 12],
+        ['bones', 37650, 1], ['torch', 37900], ['fence', 38300, 5],
+        ['cobweb', 38420, 434], ['torch', 38800], ['banner', 38650, 12],
+        ['torch', 39500],       ],
+      st: [[36900], [37480], [39380, 380]], fbx: 37480, npc: 37580,
+    }),
+
+    // 3-3 "The
+    ch('3-3', 3, 'The Courtyard of Echoes', {
+      s: 40100,
+      p: [
+        [40100, 656, 1000, 64], [41290, 656, 1000, 64], [42460, 656, 940, 64],
+        [40400, 540, 130, 24], [40650, 440, 120, 24], [40900, 340, 110, 24],
+        [41500, 520, 140, 24], [41750, 410, 130, 24], [42000, 310, 120, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 40550, 591, 40350, 40750],
+        ['enemy_002', 'patroller', 40950, 594, 40850, 41050], ['enemy_003', 'chaser', 41550, 594],
+        ['enemy_004', 'brute', 41950, 578, 41800, 42100],
+      ],
+      c: [
+        ['coin_001', 'coin', 40200, 610], ['coin_002', 'coin', 40800, 610],
+        ['coin_003', 'coin', 41350, 560], ['coin_004', 'coin', 41850, 610],
+        ['coin_005', 'coin', 42300, 610], ['coin_006', 'rareCoin', 42060, 270],
+        ['coin_007', 'rareCoin', 41010, 300], ['health_001', 'health', 42600, 610],
+      ],
+      mid: [[42460, 42520]],
+      mb: ['brute', 10, 1.7, 'telegraph-radial-burst', 42700, 640],
+      dr: [
+        ['torch', 40200], ['statue', 40550, 14], ['banner', 40850, 13],
+        ['cobweb', 40670, 464], ['bones', 41080, 2], ['torch', 41300],
+        ['fence', 41650, 6], ['statue', 41950, 15], ['cobweb', 41770, 434],
+        ['torch', 42300], ['banner', 42600, 14], ['torch', 42900],       ],
+      st: [[40200], [42560], [42060, 310]], fbx: 40800, npc: 42200,
+    }),
+
+    // 3-4 "The
+    ch('3-4', 3, 'The Long Hall', {
+      s: 43400,
+      p: [
+        [43400, 656, 900, 64], [44490, 656, 700, 64], [45360, 656, 1040, 64],
+        [43600, 540, 120, 24], [43850, 440, 110, 24], [44600, 520, 120, 24],
+        [45500, 520, 110, 24], [45800, 430, 110, 24], [46100, 520, 110, 24],
+      ],
+      e: [
+        ['enemy_001', 'armored', 43750, 591, 43600, 43950], ['enemy_002', 'chaser', 44750, 594],
+        ['enemy_003', 'armored', 45050, 591, 44900, 45150],
+      ],
+      c: [
+        ['coin_001', 'coin', 43500, 610], ['coin_002', 'coin', 44200, 610],
+        ['coin_003', 'coin', 44550, 560], ['coin_004', 'rareCoin', 43910, 400],
+        ['coin_005', 'coin', 45250, 560], ['health_001', 'health', 45450, 610],
+        ['health_002', 'health', 46300, 610],
+      ],
+      mid: [[45360, 45420]],
+      sc: ['pouria-fight', 45360, 1040, 12, 6],
+      dr: [
+        ['torch', 43500], ['banner', 43900, 15], ['statue', 44280, 17],
+        ['bones', 44280, 2], ['torch', 44650], ['cobweb', 43870, 464],
+        ['fence', 45000, 7], ['torch', 45400], ['banner', 45600, 16],
+        ['torch', 45900], ['statue', 46200, 18], ['torch', 46350],
+      ],
+      st: [[43450], [44000], [44200]], fbx: 45300, npc: 45400,
+    }),
+
+    // 3-5 "The
+    ch('3-5', 3, 'The Queen of Light', {
+      s: 46700,
+      p: [
+        [46700, 656, 900, 64], [47790, 656, 600, 64], [48560, 656, 1440, 64],
+        [46950, 540, 120, 24], [47200, 440, 110, 24], [47900, 520, 120, 24], [48150, 410, 110, 24],
+        [48700, 520, 110, 24], [49000, 430, 110, 24], [49300, 520, 110, 24], [49940, 300, 60, 356],
+      ],
+      e: [
+        ['enemy_001', 'armored', 47100, 591, 46950, 47300],
+        ['enemy_002', 'brute', 48100, 578, 47950, 48250],
+      ],
+      c: [
+        ['coin_001', 'coin', 46800, 610], ['coin_002', 'coin', 47350, 610],
+        ['coin_003', 'coin', 47700, 560], ['coin_004', 'coin', 48000, 610],
+        ['coin_005', 'rareCoin', 48210, 370], ['coin_006', 'coin', 48450, 560],
+        ['coin_007', 'coin', 48800, 610], ['health_001', 'health', 48650, 610],
+        ['health_002', 'health', 49450, 610],
+      ],
+      mid: [[48560, 48620]],
+      fb: [48560, 1380, 49860, 590, [10, 12, 14]],
+      dr: [
+        ['torch', 46800], ['banner', 47100, 17], ['statue', 47450, 19],
+        ['torch', 47750], ['bones', 48000, 2], ['fence', 48300, 8],
+        ['torch', 48600], ['banner', 48800, 18], ['torch', 49100],
+        ['statue', 49500, 20], ['torch', 49700],
+      ],
+      st: [[46780], [47400], [47850]], fbx: 47550, npc: 48650,
+    }),
   ]),
 });
 
@@ -376,8 +734,8 @@ export function buildLevel(data) {
     }
   }
 
-  // Flatten the collision world from AUTHORED chapters only. Unauthored
-  // chapters contribute no geometry until Phase 12 authors them.
+  // Flatten the collision world from AUTHORED chapters (all 15 as of
+  // Phase 12).
   const allPlatforms = [];
   for (let i = 0; i < records.length; i += 1) {
     const ch = records[i];
@@ -404,10 +762,8 @@ export function buildLevel(data) {
     }
   }
 
-  // INTERIM end-of-authored-content wall (Phases 5-11 only): a cliff-face
-  // slab after the last authored chapter so the player cannot walk into
-  // unauthored void. Removed automatically once the final chapter (3-5) is
-  // authored — the world is then complete.
+  // INTERIM end-of-authored-content wall: retired in Phase 12 — every
+  // chapter is authored, and 3-5's own end-stone wall closes the world.
   const last = records[records.length - 1];
   if (!last.authored) {
     let boundary = 0;                            // end of the authored prefix

@@ -79,6 +79,25 @@
   <button id="btn-travel-again" type="button" class="action">Travel Again</button>
 </div>
 
+<!-- The Choice (§52): the required beat; keys 1/2/3; third option is
+     true-ending-only. -->
+<div id="choice-overlay" class="overlay screen hidden">
+  <h1>The Choice</h1>
+  <p class="story-line">The Queen of Light is freed. The Shadow King stands exposed. Pouria is on the brink.</p>
+  <button id="btn-choice-free" type="button" class="action choice-opt">
+    <span class="co-key">1</span>Free Pouria
+    <small>Tear the moon-prison open — another source of power must be found. Involves sacrifice.</small>
+  </button>
+  <button id="btn-choice-leave" type="button" class="action choice-opt">
+    <span class="co-key">2</span>Leave Pouria
+    <small>The moon stays imprisoned. Walk through the gate and let the dark keep what it took.</small>
+  </button>
+  <button id="btn-choice-sacrifice" type="button" class="action choice-opt hidden">
+    <span class="co-key">3</span>Accept the Queen's Gift
+    <small>Aram's mother offers her own life force to replace Pouria's — brother and moon both saved.</small>
+  </button>
+</div>
+
 <script type="module" src="src/main.js"></script>
 </body>
 </html>
