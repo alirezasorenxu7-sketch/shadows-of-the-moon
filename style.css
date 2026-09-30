@@ -177,3 +177,136 @@ body {
   outline: 2px solid rgba(74, 158, 255, 0.9);
   outline-offset: 2px;
 }
+
+/* ---- §65 screens (Phase 9) ------------------------------------------------ */
+
+/* Screens sit above the pause overlay; the portrait rotation overlay (§8.2)
+   always wins on top. */
+.overlay.screen { z-index: 30; }
+#rotation-overlay { z-index: 40; }
+
+.game-title {
+  font: 700 46px system-ui, sans-serif;
+  line-height: 1.18;
+  letter-spacing: 0.18em;
+  color: #e8ecff;
+  text-shadow: 0 0 24px rgba(74, 158, 255, 0.25);
+}
+
+.story-line {
+  max-width: 680px;
+  font: 400 16px system-ui, sans-serif;
+  color: #8b93c9;
+}
+
+.overlay button.action {
+  padding: 14px 44px;
+  font: 700 18px system-ui, sans-serif;
+  letter-spacing: 0.1em;
+  color: #e8ecff;
+  background: rgba(74, 158, 255, 0.18);
+  border: 1px solid rgba(74, 158, 255, 0.65);
+  border-radius: 12px;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.overlay button.action:focus-visible {
+  outline: 2px solid rgba(74, 158, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.guide {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  font: 400 13px system-ui, sans-serif;
+  color: #6a7392;
+  letter-spacing: 0.02em;
+}
+
+/* Death / victory stat grid (§65: score, kills, coins, damage, rank). */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, auto));
+  gap: 10px 36px;
+  padding: 14px 22px;
+  background: rgba(6, 8, 16, 0.55);
+  border: 1px solid rgba(130, 150, 230, 0.22);
+  border-radius: 12px;
+}
+
+.stat {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font: 400 15px system-ui, sans-serif;
+  color: #8b93c9;
+}
+
+.stat b {
+  font-weight: 700;
+  color: #e8ecff;
+}
+
+.stat b.rank-S { color: #f2d55c; }
+.stat b.rank-A { color: #9fd0ff; }
+.stat b.rank-B { color: #a8e6b0; }
+.stat b.rank-C { color: #8b93c9; }
+
+/* ---- §15/§65 locked character selectors (Phase 9) ------------------------ */
+
+/* Locked slot: greyed + lock icon + NOT interactive (no tap, no key). */
+.tc.locked {
+  pointer-events: none;
+  opacity: 0.28;
+}
+
+.tc.locked .face {
+  border-color: rgba(90, 100, 130, 0.35);
+  background: rgba(12, 15, 26, 0.5);
+  color: #6a7392;
+  align-items: flex-end;    /* name sits low; the lock icon occupies the top */
+  padding-bottom: 7px;
+}
+
+/* CSS padlock: shackle (outline arc) above body (filled rounded rect). */
+.tc.locked .face::before {
+  content: '';
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 7px;
+  border: 2px solid #6a7392;
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+  box-sizing: border-box;
+}
+
+.tc.locked .face::after {
+  content: '';
+  position: absolute;
+  top: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 13px;
+  height: 9px;
+  background: #6a7392;
+  border-radius: 2px;
+}
+
+/* .face needs a positioning context for the lock icon. */
+#btn-select-sara .face,
+#btn-select-raha .face,
+#btn-select-aram .face {
+  position: relative;
+}
+
+/* Active-character indicator: persistent character-color ring (§65 HUD
+   echoes the roster state on the selectors themselves). */
+#btn-select-sara.current .face { border-color: rgba(74, 158, 255, 0.85); }
+#btn-select-raha.current .face { border-color: rgba(230, 57, 70, 0.85); }
+#btn-select-aram.current .face { border-color: rgba(157, 78, 221, 0.85); }

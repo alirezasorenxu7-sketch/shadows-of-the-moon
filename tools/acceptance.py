@@ -384,7 +384,6 @@ def test_portrait_behavior(browser):
     page = _boot_page(ctx)
     try:
         m0 = _metrics(page)
-        t0 = m0["gameTime"]
         if m0["paused"]:
             return Result(name, "FAIL", "game paused at boot")
         page.set_viewport_size({"width": 720, "height": 1280})
@@ -399,13 +398,19 @@ def test_portrait_behavior(browser):
             problems.append("gameplay touch controls not hidden")
         if m1["input"]["enabled"]:
             problems.append("gameplay input not disabled")
+        # Baseline AFTER the pause is confirmed engaged: sim steps that
+        # legitimately tick while the browser is still processing the
+        # rotation are pre-pause, not "advancement while paused". §79.13
+        # asserts the PAUSED window exactly (same 1e-9 precision as §79.7,
+        # which also baselines post-pause).
+        t0 = m1["gameTime"]
         page.keyboard.down("KeyA")
         page.wait_for_timeout(300)
         m_k = _metrics(page)
         page.keyboard.up("KeyA")
         if m_k["input"]["left"]:
             problems.append("keyboard gameplay input registered while paused")
-        if abs(m1["gameTime"] - t0) > 1e-9 or abs(m_k["gameTime"] - t0) > 1e-9:
+        if abs(m_k["gameTime"] - t0) > 1e-9:
             problems.append("physics advanced while portrait-paused")
         page.set_viewport_size({"width": 1280, "height": 720})
         page.wait_for_timeout(500)
@@ -1272,6 +1277,234 @@ def test_raha_slam(browser):
         ctx.close()
 
 
+# ------------------------------------------------------------------ phase 9 tests
+
+SAVE_KEY = "shadows_of_the_moon_save_v2"
+
+
+def _save_json(page):
+    raw = page.evaluate(f"() => localStorage.getItem('{SAVE_KEY}')")
+    return json.loads(raw) if raw else None
+
+
+def test_fullscreen(browser):
+    """SPEC §79.14: the FIRST Start Journey gesture attempts fullscreen;
+    rejection (headless/denied) never blocks the run; no uncaught error.
+
+    Boots the REAL title flow via ?somTitle=1 (§73 test-mode opt-out of the
+    auto-start convenience), clicks the genuine Start Journey button, and
+    verifies the attempt flag, the unblocked run, and a clean console."""
+    name = "test: First-gesture fullscreen best-effort (§79.14)"
+    ctx = _new_test_context(browser)
+    page = ctx.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        page.goto(f"{BASE_URL}?somTitle=1", wait_until="load", timeout=15000)
+        page.wait_for_function("() => window.__SOM_BOOTED__ === true", timeout=5000)
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.renderCount > 5",
+            timeout=5000)
+        m0 = _metrics(page)
+        problems = []
+        if m0["screen"] != "title":
+            problems.append(f"boot screen = {m0['screen']} (expected title)")
+        if not page.locator("#start-screen").is_visible():
+            problems.append("start screen not visible at boot")
+        if m0["fullscreenAttempted"]:
+            problems.append("fullscreen attempted before any user gesture")
+        if not page.locator("#btn-start").is_visible():
+            problems.append("Start Journey button not visible")
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+
+        page.locator("#btn-start").click()          # the §65/§17 first gesture
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.screen === 'playing'",
+            timeout=5000)
+        page.wait_for_timeout(400)                  # let any rejection settle
+        m1 = _metrics(page)
+        if not m1["fullscreenAttempted"]:
+            problems.append("Start Journey did not attempt fullscreen (§17)")
+        if m1["paused"]:
+            problems.append("run blocked after the fullscreen attempt (forbidden §17)")
+        t0 = m1["gameTime"]
+        page.wait_for_timeout(400)
+        m2 = _metrics(page)
+        if m2["gameTime"] <= t0:
+            problems.append("gameplay frozen after the attempt (rejection must not block)")
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(problems))
+        return Result(name, "PASS",
+                      "Start Journey attempted fullscreen; run started and advances; "
+                      "no uncaught error (rejection tolerated)")
+    finally:
+        ctx.close()
+
+
+def test_persistence(browser):
+    """SPEC §79.15: final game-over writes the save; victory writes the
+    save; reload preserves bestScore/bestRank/totalCoins; a pickup never
+    independently writes; crossing a checkpoint never writes.
+
+    Walks the REAL title flow (?somTitle=1): Start Journey → pickup →
+    chapter-entry write → mid-chapter checkpoint crossing (no write) →
+    fall death (game-over bank) → reload (preserved + unlockedCharacters
+    seeded) → second run → forceVictory (§73 harness path — the organic
+    moon-gate trigger arrives with Phase 12, §79.18)."""
+    name = "test: localStorage save at game-over/victory only (§79.15)"
+    ctx = _new_test_context(browser)
+    page = ctx.new_page()
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        page.goto(f"{BASE_URL}?somTitle=1", wait_until="load", timeout=15000)
+        page.wait_for_function("() => window.__SOM_BOOTED__ === true", timeout=5000)
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.renderCount > 5",
+            timeout=5000)
+        problems = []
+
+        # ---- 1. run start: trigger 1 write (§63) --------------------------
+        page.locator("#btn-start").click()
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.screen === 'playing'",
+            timeout=5000)
+        m = _metrics(page)
+        s1 = _save_json(page)
+        if s1 is None:
+            return Result(name, "FAIL", "no save written at run start (trigger 1)")
+        if s1.get("version") != 2:
+            problems.append(f"save version {s1.get('version')} != 2")
+        if s1.get("currentChapter") != "1-1":
+            problems.append(f"save currentChapter {s1.get('currentChapter')} != 1-1")
+        if s1.get("unlockedCharacters") != ["sara"]:
+            problems.append(f"save unlockedCharacters {s1.get('unlockedCharacters')}")
+        if s1.get("bestRank") is not None:
+            problems.append(f"fresh save bestRank {s1.get('bestRank')} (rank is run-final, §62)")
+        if m["saveWrites"] != 1:
+            problems.append(f"saveWrites {m['saveWrites']} after run start (expected 1)")
+
+        # ---- 2. pickup does NOT write (§63 no-write list) ------------------
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(445, 594)")  # onto coin 001
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.currentRunCoins === 1",
+            timeout=5000)
+        m = _metrics(page)
+        s2 = _save_json(page)
+        if m["score"] != 10:
+            problems.append(f"coin pickup score {m['score']} != 10 (§58)")
+        if m["saveWrites"] != 1:
+            problems.append(f"pickup wrote the save (saveWrites {m['saveWrites']})")
+        if s2 != s1:
+            problems.append("pickup changed the save content")
+
+        # ---- 3. chapter entry writes; checkpoint crossing does not --------
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(3500, 594)")  # enter 1-2
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.currentChapter === '1-2'",
+            timeout=5000)
+        page.wait_for_timeout(400)
+        m = _metrics(page)
+        s3 = _save_json(page)
+        if m["saveWrites"] != 2:
+            problems.append(f"chapter entry did not write exactly once (saveWrites {m['saveWrites']})")
+        if s3.get("completedChapters") != ["1-1"]:
+            problems.append(f"completedChapters {s3.get('completedChapters')} != ['1-1']")
+        if s3.get("currentChapter") != "1-2":
+            problems.append(f"save currentChapter {s3.get('currentChapter')} != 1-2")
+        cps = s3.get("chapterCheckpoints") or {}
+        for cid in ("1-1", "1-2"):
+            if cid not in cps:
+                problems.append(f"chapterCheckpoints missing {cid}")
+        if "1-2" in cps and cps["1-2"].get("checkpointId") != "c1_2_cp_start":
+            problems.append(f"1-2 checkpoint record wrong: {cps.get('1-2')}")
+        # cross the MID-chapter checkpoint rect (x 6120..6160, full height)
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(6140, 594)")
+        page.wait_for_timeout(400)
+        m = _metrics(page)
+        s4 = _save_json(page)
+        if m["saveWrites"] != 2:
+            problems.append(f"checkpoint crossing wrote the save (saveWrites {m['saveWrites']})")
+        if s4 != s3:
+            problems.append("checkpoint crossing changed the save content")
+
+        # ---- 4. final game-over writes the save (bank + rank) --------------
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(4700, 1200)")  # below ground
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.screen === 'dead'",
+            timeout=5000)
+        m = _metrics(page)
+        s5 = _save_json(page)
+        if not page.locator("#death-screen").is_visible():
+            problems.append("death screen not visible after final game-over")
+        if m["saveWrites"] != 3:
+            problems.append(f"game-over did not write exactly once (saveWrites {m['saveWrites']})")
+        if s5.get("bestScore") != 10:
+            problems.append(f"bestScore {s5.get('bestScore')} != 10")
+        if s5.get("totalCoins") != 1:
+            problems.append(f"totalCoins {s5.get('totalCoins')} != 1 (bank on game-over)")
+        if s5.get("bestRank") != "C":
+            problems.append(f"bestRank {s5.get('bestRank')} != C")
+        if s5.get("currentChapter") != "1-2":
+            problems.append(f"game-over currentChapter {s5.get('currentChapter')} != 1-2")
+
+        # ---- 5. reload preserves the record; boot seeds from it ------------
+        page.reload(wait_until="load")
+        page.wait_for_function("() => window.__SOM_BOOTED__ === true", timeout=5000)
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.renderCount > 5",
+            timeout=5000)
+        m5 = _metrics(page)
+        s6 = _save_json(page)
+        if s6 != s5:
+            problems.append("reload altered the saved record")
+        if m5["screen"] != "title":
+            problems.append(f"reload screen {m5['screen']} != title")
+        if m5["unlockedCharacters"] != ["sara"]:
+            problems.append(f"reload did not seed unlockedCharacters ({m5['unlockedCharacters']})")
+
+        # ---- 6. victory writes the save (fresh run: no double banking) -----
+        page.locator("#btn-start").click()
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.screen === 'playing'",
+            timeout=5000)
+        page.evaluate("() => window.__SOM_TEST_API__.forceVictory()")
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.screen === 'victory'",
+            timeout=5000)
+        m6 = _metrics(page)
+        s7 = _save_json(page)
+        if not page.locator("#victory-screen").is_visible():
+            problems.append("victory screen not visible")
+        # saveWrites is a PAGE-scoped counter (reset by the reload above):
+        # on the reloaded page exactly two writes occur — run start + victory.
+        if m6["saveWrites"] != 2:
+            problems.append(f"victory path wrote {m6['saveWrites']} times on the reloaded "
+                            "page (expected 2: run start + victory)")
+        if s7.get("bestScore") != 500:
+            problems.append(f"victory bestScore {s7.get('bestScore')} != 500 (bonus §58)")
+        if s7.get("totalCoins") != 1:
+            problems.append(f"victory totalCoins {s7.get('totalCoins')} != 1 (fresh run banks 0)")
+        if s7.get("currentChapter") != "1-1":
+            problems.append(f"fresh-run progress not reset ({s7.get('currentChapter')})")
+        if s7.get("unlockedCharacters") != ["sara"]:
+            problems.append(f"victory save unlockedCharacters {s7.get('unlockedCharacters')}")
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+        return Result(name, "PASS",
+                      "game-over banked 1 coin + rank C; reload preserved + seeded; "
+                      "pickup/checkpoint never wrote; victory wrote bonus-500 save")
+    finally:
+        ctx.close()
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
@@ -1284,6 +1517,8 @@ _IMPLS = {
     "character_switching": test_character_switching,
     "midair_double_jump": test_midair_double_jump,
     "raha_slam": test_raha_slam,
+    "fullscreen": test_fullscreen,
+    "persistence": test_persistence,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:

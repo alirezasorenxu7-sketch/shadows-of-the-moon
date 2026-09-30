@@ -38,6 +38,36 @@
   <p>Shadows of the Moon is played in landscape.</p>
 </div>
 
+<!-- Start screen (SPEC §65): title + three-line story + Start Journey +
+     control guide. The Start Journey gesture is the §17 first-gesture
+     fullscreen attempt. -->
+<div id="start-screen" class="overlay screen hidden">
+  <h1 class="game-title">SHADOWS<br>OF THE MOON</h1>
+  <p class="story-line">The Shadows stole the moon, and the world forgot its light.</p>
+  <p class="story-line">Three strangers — blade, fury, and spell — walk the dark road to the castle.</p>
+  <p class="story-line">Behind its walls waits a light that was never meant to be caged.</p>
+  <button id="btn-start" type="button" class="action">Start Journey</button>
+  <div class="guide">
+    <span>A / D — move &nbsp;·&nbsp; Space — jump &nbsp;·&nbsp; J — attack &nbsp;·&nbsp; K — special</span>
+    <span>1 / 2 / 3 — switch warriors &nbsp;·&nbsp; Esc — pause &nbsp;·&nbsp; R — resume</span>
+  </div>
+</div>
+
+<!-- Death screen (SPEC §65): final game-over stats + Try Again. -->
+<div id="death-screen" class="overlay screen hidden">
+  <h1>Darkness prevailed...</h1>
+  <div id="death-stats" class="stats"></div>
+  <button id="btn-try-again" type="button" class="action">Try Again</button>
+</div>
+
+<!-- Victory screen (SPEC §65): stats + Travel Again. The three ending
+     cards arrive with Phase 13 (ending triggers, §52/§62). -->
+<div id="victory-screen" class="overlay screen hidden">
+  <h1>The Moon Has Returned</h1>
+  <div id="victory-stats" class="stats"></div>
+  <button id="btn-travel-again" type="button" class="action">Travel Again</button>
+</div>
+
 <script type="module" src="src/main.js"></script>
 </body>
 </html>

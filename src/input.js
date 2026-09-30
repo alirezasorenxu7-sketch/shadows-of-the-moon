@@ -64,6 +64,11 @@ export function createInput({ game, onManualPause }) {
   }
 
   function press(btn) {
+    // §15/§20: a LOCKED character selector is NOT interactive — no tap, no
+    // event, no count (defense in depth under switchCharacter's own gate).
+    if (btn.edge === 'select' && game.unlockedCharacters.indexOf(btn.select) === -1) {
+      return;
+    }
     if (btn.hold && btn.hold !== 'jump') held[btn.hold] = true;
     if (btn.hold === 'jump') {
       jumpSources.add('touch');
@@ -126,14 +131,22 @@ export function createInput({ game, onManualPause }) {
       pressStart.set(e.code, performance.now());
       events.push({ type: 'special', key: e.code });
     } else if (matchesAny(KEYS.SELECT_SARA, e.code)) {
-      counts.select += 1;
-      events.push({ type: 'select', select: 'sara' });
+      // §16/§20: 1/2/3 select only UNLOCKED characters — locked keys emit
+      // nothing at the source.
+      if (game.unlockedCharacters.indexOf('sara') !== -1) {
+        counts.select += 1;
+        events.push({ type: 'select', select: 'sara' });
+      }
     } else if (matchesAny(KEYS.SELECT_RAHA, e.code)) {
-      counts.select += 1;
-      events.push({ type: 'select', select: 'raha' });
+      if (game.unlockedCharacters.indexOf('raha') !== -1) {
+        counts.select += 1;
+        events.push({ type: 'select', select: 'raha' });
+      }
     } else if (matchesAny(KEYS.SELECT_ARAM, e.code)) {
-      counts.select += 1;
-      events.push({ type: 'select', select: 'aram' });
+      if (game.unlockedCharacters.indexOf('aram') !== -1) {
+        counts.select += 1;
+        events.push({ type: 'select', select: 'aram' });
+      }
     }
   });
 
