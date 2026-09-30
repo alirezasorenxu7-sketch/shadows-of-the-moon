@@ -323,3 +323,50 @@ export const ARAM_PALETTE = Object.freeze({
   skin: '#e6d4ef',       // render-authored moonlit skin
   pupil: '#c77dff',      // glowing purple pupils
 });
+
+// ---- collectibles (SPEC §48, §58 — Phase 9) ---------------------------------
+// Scores are §58-locked. Radii are the authored base visual radii; the
+// amended §48 x1.3 scale pass (COLLECTIBLE_SCALE, §18) grows both the drawn
+// size and the pickup radius (plus a forgiving pickup margin).
+export const COLLECTIBLE_TYPES = Object.freeze({
+  coin: Object.freeze({ score: 10, radius: 8 }),       // §58 common coin
+  rareCoin: Object.freeze({ score: 50, radius: 9 }),   // §58 rare coin
+  crystal: Object.freeze({ score: 200, radius: 12 }),  // §58 moon crystal
+});
+export const COLLECTIBLE_PICKUP_MARGIN = 6;      // authored: pickup forgiveness, px
+// §58 level completion score — awarded once at victory, BEFORE the rank
+// computation (§62 "add completion bonus first, then rank").
+export const LEVEL_COMPLETION_SCORE = 500;
+
+// ---- collectible palettes (render-authored moonlit tones, §55-adjacent) -----
+export const COIN_PALETTE = Object.freeze({
+  edge: '#8a6a10',       // rim
+  face: '#c9a227',       // disc face
+  shine: '#f2d55c',      // highlight chip
+});
+export const RARE_COIN_PALETTE = Object.freeze({
+  edge: '#5c6f96',       // steel rim
+  face: '#aebfdd',       // pale silver-blue disc
+  shine: '#eef4ff',      // bright highlight
+});
+export const CRYSTAL_PALETTE = Object.freeze({
+  edge: '#7a3aa8',       // facet outline
+  body: '#c77dff',       // moon-crystal body
+  core: '#eee8ff',       // bright core facet
+  glow: '#9d4edd',       // layered glow shells
+});
+
+// ---- rank (SPEC §62 — locked thresholds; Phase 9 computes for save v2) -------
+export const RANK_TABLE = Object.freeze({
+  S: Object.freeze({ score: 3000, damage: 2 }),
+  A: Object.freeze({ score: 2000, damage: 5 }),
+  B: Object.freeze({ score: 1000, damage: Infinity }),
+});
+
+// ---- HUD (SPEC §65 — Phase 9) ------------------------------------------------
+// HP-bar gradient end colors per character (character-color gradient).
+export const HUD_HP_GRADS = Object.freeze({
+  sara: Object.freeze(['#4a9eff', '#9fd0ff']),
+  raha: Object.freeze(['#e63946', '#ff9aa3']),
+  aram: Object.freeze(['#9d4edd', '#d8a8f5']),
+});

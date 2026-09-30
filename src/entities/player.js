@@ -131,6 +131,59 @@ export function createPlayer(level, characterKey = 'sara') {
   };
 }
 
+// §47 NEW RUN — "current character state" reset: a new run starts with Sara
+// (Phase-2 decision) at the chapter 1-1 spawn with a clean, fully-healed,
+// ability-free entity. Cooldowns, i-frames, dash/slam/shield, presentation
+// facts — everything returns to the createPlayer baseline. Run-scoped game
+// state (score, collections, unlocks) is reset by the caller (main.js);
+// unlockedCharacters is NEVER reset (§20).
+export function resetPlayer(game, player, level) {
+  const roster = ROSTER.sara;
+  player.character = roster.key;
+  player.x = level.spawn.x;
+  player.y = level.spawn.y;
+  player.w = roster.w;
+  player.h = roster.h;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = false;
+  player.facing = 'right';
+  player.hp = roster.maxHp;          // heartCount is 0 on a new run (§19/§47)
+  player.maxHp = roster.maxHp;
+  player.maxJumps = roster.maxJumps;
+  player.jumpsUsed = 0;
+  player.coyote = 0;
+  player.jumpBuffer = 0;
+  player.invuln = 0;
+  player.prevY = level.spawn.y;
+  player.dead = false;
+  player.deathReason = null;
+  const cds = player.cooldowns;      // per-character, all zeroed (§11.1)
+  const keys = ['sara', 'raha', 'aram'];
+  for (let i = 0; i < keys.length; i += 1) {
+    const c = cds[keys[i]];
+    c.attack = 0;
+    c.special = 0;
+    if (keys[i] === 'aram') c.shield = 0;
+  }
+  player.dashT = 0;
+  player.dashDir = 1;
+  player.dashFlight = false;
+  player.dashHits.length = 0;
+  player.slamActive = false;
+  player.shieldT = 0;
+  player.specialPressAt = null;
+  player.specialResolved = true;
+  player.animTime = 0;
+  player.runTime = 0;
+  player.lastJumpAt = -1;
+  player.lastLandAt = -1;
+  player.attackAnimT = 0;
+  player.specialAnimT = 0;
+  player.trail.length = 0;
+  return player;
+}
+
 function die(game, player, reason) {
   player.dead = true;
   player.deathReason = reason;

@@ -81,6 +81,13 @@ import {
   ANIM_HAIR_RISE,
   ANIM_HAIR_TRAIL,
   ANIM_ENEMY_WALK,
+  COLLECTIBLE_SCALE,
+  COIN_PALETTE,
+  RARE_COIN_PALETTE,
+  CRYSTAL_PALETTE,
+  HUD_HP_GRADS,
+  TEXT_MAIN,
+  TEXT_DIM,
 } from './constants.js';
 
 // Deterministic starfield: pure authored formula, no randomness (§72).
@@ -1337,6 +1344,199 @@ function drawTutorial(ctx, game) {
   ctx.globalAlpha = 1;
 }
 
+// ---------------------------------------------------------------------------
+// Collectibles (SPEC §48/§58 — Phase 9): coins, rare coins, moon crystals.
+// Deterministic bob/spin phases derive from the stable authored IDs (§72).
+// All art is rects/ellipses/paths with layered alpha — NO shadowBlur (§30
+// reserves it for enemy eyes; §78 performance).
+// ---------------------------------------------------------------------------
+
+// Common/rare coin: a spinning disc — horizontal squash |cos| sells the
+// spin without any state; the bob rides a per-ID sine phase.
+function drawCoinDisc(ctx, c, gameTime, palette, rare) {
+  const bob = Math.sin(gameTime * 2.2 + c.phase) * 3;
+  const spin = Math.abs(Math.cos(gameTime * 2.4 + c.phase));
+  const R = c.r;
+  const cx = c.x;
+  const cy = c.y + bob;
+  const wr = Math.max(R * 0.32, R * spin);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, wr, R, 0, 0, Math.PI * 2);
+  ctx.fillStyle = palette.face;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = palette.edge;
+  ctx.stroke();
+  // inner detail ring — a crescent notch keeps the moon motif
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, wr * 0.55, R * 0.55, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = palette.edge;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  // upper-left highlight chip
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = palette.shine;
+  ctx.fillRect(cx - wr * 0.5, cy - R * 0.7, 3, 3);
+  ctx.globalAlpha = 1;
+  if (rare) {
+    // rare tell: four orbiting twinkle pixels (deterministic positions)
+    for (let i = 0; i < 4; i += 1) {
+      const ang = gameTime * 1.3 + c.phase + i * Math.PI / 2;
+      const tx = cx + Math.cos(ang) * (R + 5);
+      const ty = cy + Math.sin(ang) * (R + 5);
+      ctx.globalAlpha = 0.5 + 0.5 * Math.sin(gameTime * 3 + i);
+      ctx.fillStyle = palette.shine;
+      ctx.fillRect(tx - 1, ty - 1, 2.5, 2.5);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+// Moon crystal: a faceted diamond with layered alpha glow shells (no blur)
+// and a slow pulse — the three-crystal hidden-truth keys (§62 ending tie).
+function drawCrystal(ctx, c, gameTime) {
+  const bob = Math.sin(gameTime * 1.6 + c.phase) * 4;
+  const pulse = 0.75 + 0.25 * Math.sin(gameTime * 2.0 + c.phase);
+  const cx = c.x;
+  const cy = c.y + bob;
+  const w = c.r * 0.62;
+  const h = c.r * 1.35;
+  // layered glow shells behind the body
+  ctx.globalAlpha = 0.10 * pulse;
+  ctx.fillStyle = CRYSTAL_PALETTE.glow;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, c.r * 1.7, c.r * 2.0, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 0.16 * pulse;
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, c.r * 1.25, c.r * 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  // faceted diamond body
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - h);
+  ctx.lineTo(cx + w, cy);
+  ctx.lineTo(cx, cy + h);
+  ctx.lineTo(cx - w, cy);
+  ctx.closePath();
+  ctx.fillStyle = CRYSTAL_PALETTE.body;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = CRYSTAL_PALETTE.edge;
+  ctx.stroke();
+  // bright core facet (left half catch-light)
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - h);
+  ctx.lineTo(cx - w, cy);
+  ctx.lineTo(cx, cy + h);
+  ctx.closePath();
+  ctx.globalAlpha = 0.55 * pulse;
+  ctx.fillStyle = CRYSTAL_PALETTE.core;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  // sparkle pixel at the tip
+  ctx.globalAlpha = 0.6 + 0.4 * Math.sin(gameTime * 4 + c.phase);
+  ctx.fillStyle = CRYSTAL_PALETTE.core;
+  ctx.fillRect(cx - 1, cy - h - 4, 2.5, 2.5);
+  ctx.globalAlpha = 1;
+}
+
+function drawCollectibles(ctx, collectibles, cam, gameTime) {
+  if (!collectibles) return;
+  // Render-only culling (§42/§78) against the zoomed camera view.
+  const left = cam.x - 24;
+  const right = cam.x + VIEW_W + 24;
+  for (let i = 0; i < collectibles.length; i += 1) {
+    const c = collectibles[i];
+    if (c.x + c.r < left || c.x - c.r > right) continue;
+    if (c.kind === 'crystal') drawCrystal(ctx, c, gameTime);
+    else if (c.kind === 'rareCoin') drawCoinDisc(ctx, c, gameTime, RARE_COIN_PALETTE, true);
+    else drawCoinDisc(ctx, c, gameTime, COIN_PALETTE, false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HUD (SPEC §65 — Phase 9). Screen-space (1280x720 logical), drawn ABOVE
+// the vignette so it stays crisp. §26's cooldown ring belongs to Phase 10
+// per the phase table. Gradients are cached per character (§78: no
+// per-frame allocation beyond trivial text).
+// ---------------------------------------------------------------------------
+const HP_GRADIENTS = new Map();
+function hpGradient(ctx, key) {
+  let grad = HP_GRADIENTS.get(key);
+  if (!grad) {
+    const ends = HUD_HP_GRADS[key] || HUD_HP_GRADS.sara;
+    grad = ctx.createLinearGradient(18, 0, 168, 0);
+    grad.addColorStop(0, ends[0]);
+    grad.addColorStop(1, ends[1]);
+    HP_GRADIENTS.set(key, grad);
+  }
+  return grad;
+}
+
+function drawHUD(ctx, game, player, level) {
+  if (game.screen !== 'playing') return;      // gameplay HUD only (§65)
+  // ---- top-left: character name + HP bar (character-color gradient) ----
+  const key = player.character;
+  const effMax = player.maxHp + (game.heartCount || 0);   // §19 hook
+  ctx.textAlign = 'left';
+  ctx.font = '700 15px system-ui, sans-serif';
+  ctx.fillStyle = CHARACTER_COLORS[key];
+  ctx.fillText(key.toUpperCase(), 18, 30);
+  ctx.fillStyle = 'rgba(8,11,20,0.72)';
+  ctx.fillRect(16, 36, 154, 14);             // bar backing
+  const frac = effMax > 0 ? Math.max(0, Math.min(1, player.hp / effMax)) : 0;
+  if (frac > 0) {
+    ctx.fillStyle = hpGradient(ctx, key);
+    ctx.fillRect(18, 38, 150 * frac, 10);
+  }
+  ctx.font = '600 11px system-ui, sans-serif';
+  ctx.fillStyle = TEXT_DIM;
+  ctx.fillText(player.hp + '/' + effMax, 176, 47);
+  // ---- top-center: chapter id + chapter name (§46/§65) --------------------
+  let chapter = null;
+  for (let i = 0; i < level.chapters.length; i += 1) {
+    if (level.chapters[i].id === game.currentChapter) { chapter = level.chapters[i]; break; }
+  }
+  if (chapter) {
+    ctx.font = '600 13px system-ui, sans-serif';
+    const idText = chapter.id;
+    const nameText = ' · ' + chapter.name;
+    const w1 = ctx.measureText(idText).width;
+    const w2 = ctx.measureText(nameText).width;
+    const x0 = (LOGICAL_W - (w1 + w2)) / 2;
+    ctx.fillStyle = TEXT_MAIN;
+    ctx.fillText(idText, x0, 30);
+    ctx.fillStyle = TEXT_DIM;
+    ctx.fillText(nameText, x0 + w1, 30);
+  }
+  // ---- top-right: coins + kills (clear of the DOM pause button) ----------
+  ctx.font = '700 14px system-ui, sans-serif';
+  ctx.fillStyle = TEXT_MAIN;
+  // coin glyph: mini gold disc
+  ctx.beginPath();
+  ctx.arc(1082, 25, 7, 0, Math.PI * 2);
+  ctx.fillStyle = COIN_PALETTE.face;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = COIN_PALETTE.edge;
+  ctx.stroke();
+  ctx.fillStyle = TEXT_MAIN;
+  ctx.fillText('×' + game.currentRunCoins, 1094, 30);
+  // kills glyph: small crimson diamond
+  ctx.beginPath();
+  ctx.moveTo(1162, 17);
+  ctx.lineTo(1169, 25);
+  ctx.lineTo(1162, 33);
+  ctx.lineTo(1155, 25);
+  ctx.closePath();
+  ctx.fillStyle = '#e63946';
+  ctx.fill();
+  ctx.fillStyle = TEXT_MAIN;
+  ctx.fillText('×' + game.kills, 1176, 30);
+  ctx.textAlign = 'left';
+}
+
 export function createRenderer(canvas) {
   const ctx = canvas.getContext('2d', { alpha: false });
   const view = { scale: 1, dpr: 1, offsetX: 0, offsetY: 0 };
@@ -1700,7 +1900,9 @@ export function createRenderer(canvas) {
   // Phase 7 adds the §54 screen-shake offset (deterministic decaying
   // oscillation — presentation only, never fed back into gameplay) and the
   // world FX layers (gates under entities, projectiles/particles above).
-  function render(game, level, player, enemies) {
+  // Phase 9 adds the collectible layer (gates/rings → collectibles →
+  // enemies → player) and the §65 HUD on top of the vignette.
+  function render(game, level, player, enemies, collectibles) {
     const cam = game.camera;
     // §54: offset = mag * exp(-30 * age) * oscillation — the 30/s decay
     // envelope bounds every shake well inside its authored duration.
@@ -1728,6 +1930,7 @@ export function createRenderer(canvas) {
     drawPlatforms(level.allPlatforms, cam, game.brokenPlatformIds);
     drawGates(ctx, level.gates, cam, game.gameTime);   // §50 gates
     drawRings(ctx, game.rings, cam);                   // §24 impact rings
+    drawCollectibles(ctx, collectibles, cam, game.gameTime);   // §48/§58 (Phase 9)
     drawEnemies(game, enemies || [], cam);
     drawPlayer(game, player, level);
     drawProjectiles(ctx, game.projectiles, cam);       // §21 knives + magic
@@ -1739,6 +1942,7 @@ export function createRenderer(canvas) {
     drawFog();
     drawTutorial(ctx, game);                           // §20.2 non-blocking hint
     drawVignette();
+    drawHUD(ctx, game, player, level);                 // §65 HUD (Phase 9)
   }
 
   resize();
