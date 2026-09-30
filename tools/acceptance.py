@@ -1144,6 +1144,134 @@ def test_midair_double_jump(browser):
     return Result(name, "PASS", summary)
 
 
+def test_raha_slam(browser):
+    """SPEC §79.2: Raha Slam — airborne K enters fast-fall (gravity-boosted,
+    exceeding the 1500px/s terminal fall), the landing impact radius is 90px
+    (an in-range enemy hit, an out-of-range enemy untouched), enemies in
+    radius take EXACTLY 2 damage, breakables in radius break, and a large
+    §54 shake triggers. Targets: the 1-1 brute mini-boss (§50, HP 6 — an
+    exact -2 readout) and the 1-3 authored breakable c1_3_brk_001."""
+    name = "test: Raha slam: fast-fall, 90px radius, 2 dmg (§79.2)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+
+    def metrics():
+        return _metrics(page)
+
+    def find(mid):
+        return next((e for e in metrics()["enemies"] if e["id"] == mid), None)
+
+    def brute_center():
+        e = find("c1_1_miniboss")
+        return e["x"] + e["w"] / 2 if e else 3000.0
+
+    def slam_from(page_, place):
+        """Go airborne high above `place()`'s area, then — immediately before
+        the K press — re-derive the target x from a FRESH enemy read (the
+        brute patrols ~35px/s; a pre-read would drift during the ~0.4 s
+        setup+fall and could X-overlap the 78px-wide brute, degenerating the
+        slam into a stomp bounce chain). K press -> fast-fall; sample the
+        descent (max |vy| + slamActive); wait for the landing."""
+        # §11.1 authoritative gate: a previous slam's cooldown (1.8 s) must
+        # clear before the next K press can trigger — poll it via metrics.
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if _metrics(page_)["player"]["cooldowns"]["raha"]["special"] <= 0:
+                break
+            page_.wait_for_timeout(80)
+        x0 = place()
+        page_.evaluate(f"() => window.__SOM_TEST_API__.teleport({x0}, 260, 0)")
+        page_.wait_for_timeout(120)                    # airborne, at rest
+        x1 = place()                                   # FRESH read — minimal drift window
+        page_.evaluate(f"() => window.__SOM_TEST_API__.teleport({x1}, 260, 0)")
+        page_.keyboard.down("K")
+        page_.wait_for_timeout(40)
+        page_.keyboard.up("K")
+        max_vy = 0.0
+        slam_seen = False
+        deadline = time.time() + 1.4
+        while time.time() < deadline:
+            page_.wait_for_timeout(28)
+            m_ = _metrics(page_)
+            p_ = m_["player"]
+            max_vy = max(max_vy, abs(p_["vy"]))
+            slam_seen = slam_seen or p_["slamActive"]
+            if p_["onGround"]:
+                break
+        return max_vy, slam_seen
+
+    try:
+        if not page.evaluate("() => window.__SOM_TEST_API__.forceUnlock('raha')"):
+            return Result(name, "FAIL", "forceUnlock('raha') refused")
+        page.keyboard.press("2")
+        page.wait_for_timeout(150)
+        if _metrics(page)["player"]["character"] != "raha":
+            return Result(name, "FAIL", "switch to Raha did not land (§20)")
+
+        problems: list[str] = []
+
+        # ---- A: MISS — slam 200px right of the brute center (> 90px) -------
+        # Right-side placement keeps both the fall corridor and the landing
+        # on authored ground for ANY brute patrol offset (arena + 1-2 ground
+        # are contiguous), and never X-overlaps the 78px-wide brute.
+        e1 = find("c1_1_miniboss")
+        if not e1:
+            return Result(name, "FAIL", "1-1 brute mini-boss did not spawn (§50)")
+        hp_full = e1["hp"]
+        miss_at = lambda: brute_center() + 200
+        max_vy, slam_seen = slam_from(page, miss_at)
+        if not slam_seen:
+            problems.append("airborne K never entered slam fast-fall")
+        if max_vy <= 1500:
+            problems.append(f"descent max vy {max_vy:.0f} <= 1500 terminal (no fast-fall)")
+        e1 = find("c1_1_miniboss")
+        if e1["hp"] != hp_full:
+            problems.append(f"out-of-radius enemy damaged {hp_full}->{e1['hp']} (radius > 90px?)")
+
+        # ---- B: HIT — slam ~84px right of the brute center (within 90px) ---
+        # Offset +62 keeps the fall corridor clear of the brute's right edge
+        # for the residual ~10px patrol drift before the §33 wind-up plants
+        # it; the impact circle still lands ~27..55px from the AABB — hit.
+        hit_at = lambda: brute_center() + 62
+        max_vy2, _ = slam_from(page, hit_at)
+        page.wait_for_timeout(50)
+        m = metrics()
+        e1 = next((e for e in m["enemies"] if e["id"] == "c1_1_miniboss"), None)
+        if e1["hp"] != hp_full - 2:
+            problems.append(f"in-radius damage {hp_full}->{e1['hp']}, expected exactly -2 (§21/§79.2)")
+        if not m["shake"] or m["shake"]["mag"] != 12:
+            problems.append(f"large shake not live after impact: {m['shake']} (§54/§79.2)")
+        if max_vy2 <= 1500:
+            problems.append(f"hit-case descent max vy {max_vy2:.0f} <= 1500 (no fast-fall)")
+
+        # ---- C: BREAKABLE — slam onto the 1-3 stone breakable --------------
+        page.wait_for_timeout(600)                     # let the shake clear
+        slam_from(page, lambda: 8486)                  # over c1_3_brk_001
+        deadline = time.time() + 1.2                   # settle after falling through
+        while time.time() < deadline:
+            page.wait_for_timeout(60)
+            if _metrics(page)["player"]["onGround"]:
+                break
+        m = metrics()
+        if "c1_3_brk_001" not in m["brokenPlatformIds"]:
+            problems.append(f"breakable not broken: {m['brokenPlatformIds']} (§24/§79.2)")
+        if not m["player"]["onGround"]:
+            problems.append("player did not settle after breaking through")
+
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+        return Result(name, "PASS",
+                      f"fast-fall vy {max(max_vy, max_vy2):.0f}px/s; radius: "
+                      f"miss@200 untouched / hit@74 -2dmg; breakable broken; shake 12px")
+    finally:
+        ctx.close()
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
@@ -1155,6 +1283,7 @@ _IMPLS = {
     "aram_slow_motion": test_aram_slow_motion,
     "character_switching": test_character_switching,
     "midair_double_jump": test_midair_double_jump,
+    "raha_slam": test_raha_slam,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:

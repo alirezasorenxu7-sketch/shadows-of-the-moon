@@ -150,15 +150,65 @@ export const GRASS_TONE = '#04060c';         // foreground grass (authored)
 export const FOG_TONE = '#05070f';           // bottom fog band (authored)
 export const PLATFORM_SHADOW = '#05070d';    // under-edge shadow tone (amended §55)
 
-// ---- enemies (SPEC §27–§33, §58 — Phase 6: Patroller) ----------------------
+// ---- enemies (SPEC §27–§33, §58 — Phase 8: full roster) --------------------
 // Dimensions amended x1.3 to match the character scale pass (§18/§29);
-// speeds and HP unchanged. Phase 8 extends the roster (Chaser/Armored/Brute).
+// speeds and HP unchanged from §27/§29. Chaser chases (§29 trigger); Armored
+// patrols and ABSORBS Aram magic (§29.1); Brute patrols slowly with the §33
+// radial attack. Mini-bosses reuse these templates with size/HP multipliers.
 export const ENEMY_TYPES = Object.freeze({
   patroller: Object.freeze({
     key: 'patroller', w: 42, h: 62, speed: 45, hp: 1,
-    contactDamage: 1, score: 100,
+    contactDamage: 1, score: 100, chases: false,
+  }),
+  chaser: Object.freeze({
+    key: 'chaser', w: 42, h: 62, speed: 120, hp: 1,
+    contactDamage: 1, score: 100, chases: true,
+  }),
+  armored: Object.freeze({
+    key: 'armored', w: 44, h: 65, speed: 60, hp: 2,
+    contactDamage: 1, score: 150, chases: false, absorbsMagic: true,
+  }),
+  brute: Object.freeze({
+    key: 'brute', w: 52, h: 78, speed: 35, hp: 3,
+    contactDamage: 2, score: 250, chases: false, radial: true,
   }),
 });
+// §29 Chaser chase trigger: horizontal distance + vertical center band +
+// line of sight clear (§34 horizontal raycast — solid walls block).
+export const CHASE_TRIGGER_X = 240;
+export const CHASE_TRIGGER_Y = 64;
+// §34 AI timers — ALL consume enemySimDt (§11.2; slowed by Slow-motion):
+// alert pause with "!", grace before returning to post, non-Brute attack
+// telegraph wind-up, and the recurring attack-timer cooldown (authored
+// deterministic default within §98's tweak allowlist).
+export const ALERT_T = 0.4;               // alert pause, seconds
+export const RETURN_T = 1.5;              // out-of-range grace before return
+export const ATTACK_WINDUP_T = 0.3;       // non-Brute visual telegraph
+export const ATTACK_COOLDOWN = 2.2;       // authored attack-timer period
+export const ATTACK_TELEGRAPH_RANGE = 110; // authored: player proximity that
+                                           // invites the telegraph pose
+// §31 walk/run hysteresis (prevents oscillation).
+export const ENEMY_RUN_MIN = 200;         // walk -> run above this speed
+export const ENEMY_WALK_MAX = 180;        // run -> walk below this speed
+// §33 Brute radial attack (locked numbers).
+export const BRUTE_RADIAL_TRIGGER = 90;   // player within ~90px starts wind-up
+export const BRUTE_RADIAL_WINDUP = 0.5;   // seconds, red pulse
+export const BRUTE_RADIAL_RADIUS = 100;   // impact radius, px
+export const BRUTE_RADIAL_DAMAGE = 2;     // §21/§33
+export const BRUTE_RADIAL_COOLDOWN = 2.5; // enemy AI timer (slow-mo domain)
+// §34 group flanking (advisory only — never overrides collision safety,
+// edge detection, patrol bounds, walls, authored geometry).
+export const FLANK_RANGE = 150;           // eligible group radius around player
+export const FLANK_OFFSET = 90;           // left/right flank target offset
+// §50 mini-boss 'telegraph-charge' pattern (Armored template): a distinct
+// telegraphed movement pattern — §34 wind-up + boosted run inside arena
+// bounds. Charge speed exceeds ENEMY_RUN_MIN, so the §31 run state shows.
+export const CHARGE_TRIGGER_X = 340;      // authored charge proximity, px
+export const CHARGE_TRIGGER_Y = 96;       // authored vertical band, px
+export const CHARGE_SPEED = 240;          // authored charge velocity, px/s
+export const CHARGE_DURATION_T = 1.2;     // authored max charge time, s
+export const CHARGE_RECOVERY_T = 0.8;     // authored post-charge pause, s
+export const CHARGE_COOLDOWN = 3.5;       // authored charge timer, s
 // §31 animation: hurt 0.15 s with ~2px shake; 2 hits within 1.0 s -> 0.5 s
 // stagger; walk/run hysteresis thresholds (Patroller speed 45 -> always walk).
 export const ENEMY_HURT_T = 0.15;

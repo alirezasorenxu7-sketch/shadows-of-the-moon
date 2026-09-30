@@ -75,7 +75,8 @@ const game = {
   // §20 progressive unlock (session view; §63 save-v2 persistence is Phase 9):
   // Sara starts unlocked; Raha joins at chapter 1-3, Aram at chapter 1-5.
   unlockedCharacters: ['sara'],
-  heartCount: 0,                // §19 global heart containers (authored Phase 13)
+  heartCount: 0,                // §19 global heart containers (assembled)
+  heartFragments: 0,            // §19/§50 mini-boss fragments (3 = 1 container)
   projectiles: [],              // §21 knives + magic shots (player domain)
   particles: [],                // §57/§78 capped feedback particles
   rings: [],                    // §24 shockwave/slam impact rings (presentation)
@@ -341,6 +342,9 @@ function pushMetrics(frameInfo) {
   M.projectiles = projectilesSnapshot(game.projectiles);      // §21
   M.particles = particlesSnapshot(game);        // §57/§78 FX bounds
   M.gates = level.gates.map((g) => ({ id: g.id, kind: g.kind, state: g.state }));
+  M.brokenPlatformIds = Array.from(game.brokenPlatformIds);   // §24/§50 breaks
+  M.heartFragments = game.heartFragments;          // §19/§50 fragment count
+  M.heartCount = game.heartCount;                  // §19 assembled containers
   M.comboBoost = game.comboBoost
     ? { ability: game.comboBoost.ability, from: game.comboBoost.from,
         to: game.comboBoost.to, until: game.comboBoost.until }
@@ -387,6 +391,9 @@ if (window.__SOM_TEST__ === true) {
     projectiles: [],
     particles: null,
     gates: [],
+    brokenPlatformIds: [],
+    heartFragments: 0,
+    heartCount: 0,
     comboBoost: null,
     lastCombo: null,
     tutorial: null,
