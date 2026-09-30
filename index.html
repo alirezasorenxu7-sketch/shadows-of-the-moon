@@ -26,10 +26,21 @@
 </div>
 
 <!-- Pause overlay: shown while paused (not portrait). Resume is an
-     explicit source (SPEC §8.4); the game NEVER auto-resumes. -->
+     explicit source (SPEC §8.4); the game NEVER auto-resumes. The §54
+     shake intensity control (Full / Reduced / Off) is a session-only
+     presentation setting — it scales shake magnitudes at the trigger
+     sites and is deliberately NOT persisted (§63 schema is locked).
+     Restart Chapter arrives with Phase 11 checkpoints; Sound with the
+     audio phase. -->
 <div id="pause-overlay" class="overlay hidden">
   <h1>Paused</h1>
   <button id="btn-resume" type="button">Resume</button>
+  <div class="pause-row" id="shake-row">
+    <span class="pause-label">Shake</span>
+    <button type="button" class="shake-opt" data-mode="full" aria-pressed="true">Full</button>
+    <button type="button" class="shake-opt" data-mode="reduced" aria-pressed="false">Reduced</button>
+    <button type="button" class="shake-opt" data-mode="off" aria-pressed="false">Off</button>
+  </div>
 </div>
 
 <!-- Rotation overlay: shown while the viewport is portrait (SPEC §8.2). -->

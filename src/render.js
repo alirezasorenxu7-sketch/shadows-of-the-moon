@@ -88,6 +88,18 @@ import {
   HUD_HP_GRADS,
   TEXT_MAIN,
   TEXT_DIM,
+  DAMAGE_FLASH_T,
+  DAMAGE_FLASH_ALPHA,
+  DASH_TRAIL_FADE,
+  DASH_COOLDOWN,
+  SLAM_COOLDOWN,
+  SLOWMO_COOLDOWN,
+  LIGHTNING_PERIOD,
+  LIGHTNING_FLASH_T,
+  WIND_SWAY_PX,
+  WIND_SWAY_RATE,
+  TORCH_LIGHT_RANGE,
+  TORCH_GLOW_ALPHA,
 } from './constants.js';
 
 // Deterministic starfield: pure authored formula, no randomness (§72).
@@ -1190,18 +1202,85 @@ function drawProjectiles(ctx, projectiles, cam) {
   }
 }
 
-// §57 feedback particles: fading colored chips; §78-bounded on the game
-// state (never more than PARTICLE_CAP). Pure presentation.
-function drawParticles(ctx, particles, cam) {
+// §57/§56 particles: the single capped list carries feedback chips, soft
+// dust puffs, and the ambient weather kinds. Per-kind presentation — all
+// rect/arc art, layered alpha, NO shadowBlur (§78); culling against the
+// zoomed view (§42). `t` is the render clock for deterministic pulses.
+function drawParticles(ctx, particles, cam, t) {
   const left = cam.x - 20;
   const right = cam.x + VIEW_W + 20;
   for (let i = 0; i < particles.length; i += 1) {
     const p = particles[i];
     if (p.x < left || p.x > right) continue;
     const a = Math.max(0, p.life / p.maxLife);
-    ctx.globalAlpha = a;
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    const k = p.kind;
+    if (k === 'dust') {
+      // §57 soft ground dust: wide translucent puffs, fading with life.
+      ctx.globalAlpha = a * 0.72;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size, p.y - p.size * 0.5, p.size * 2, p.size);
+      ctx.globalAlpha = a * 0.45;
+      ctx.fillRect(p.x - p.size * 0.55, p.y - p.size * 0.28, p.size * 1.1, p.size * 0.6);
+    } else if (k === 'rain') {
+      // §56 light rain: thin slanted streaks.
+      ctx.globalAlpha = a * 0.42;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x, p.y - p.size * 2.2, 1.2, p.size * 2.2);
+    } else if (k === 'firefly') {
+      // §56 fireflies: pulsing glow dots (layered alpha, no shadowBlur).
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3.1 + p.ph * 9);
+      ctx.globalAlpha = a * (0.35 + pulse * 0.45);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size + pulse * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = a * (0.12 + pulse * 0.14);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size + 4 + pulse * 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (k === 'leaf') {
+      // §56 dry leaves: tumbling flakes — width oscillates with the sway.
+      const w = p.size * (0.55 + 0.45 * Math.abs(Math.sin(t * 2.3 + p.ph * 7)));
+      ctx.globalAlpha = a * 0.85;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - w / 2, p.y - p.size / 2, w, p.size);
+    } else if (k === 'feather') {
+      // §56 drifting feathers: pale quill + barb.
+      ctx.globalAlpha = a * 0.8;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - 1, p.y - p.size, 2, p.size * 2);
+      ctx.fillRect(p.x - 3.5, p.y - p.size * 0.7, 7, p.size * 0.8);
+    } else if (k === 'spark') {
+      // §56 Act 3 castle sparks: flickering rising embers.
+      const flick = 0.5 + 0.5 * Math.sin(t * 11 + p.ph * 13);
+      ctx.globalAlpha = a * (0.5 + flick * 0.5);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    } else if (k === 'fogWisp') {
+      // §56 patchy fog wisps: ultra-low-alpha drifting sheets.
+      ctx.globalAlpha = a * 0.16;
+      ctx.fillStyle = p.color;
+      const grow = 1 + (1 - a) * 0.8;
+      ctx.fillRect(p.x - p.size / 2, p.y - 9 * grow,
+                   p.size * grow, 18 * grow);
+    } else if (k === 'debris') {
+      // §56 wind-driven debris: dark fast flecks with a motion streak.
+      ctx.globalAlpha = a * 0.8;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size, p.y - 1, p.size * 2.4, p.size);
+    } else if (k === 'aramMote') {
+      // §56 Aram purple motes: soft glowing specks.
+      ctx.globalAlpha = a * 0.6;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size + 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      // default feedback chips (bursts, shatter, hit particles, motes)
+      ctx.globalAlpha = a;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
   }
   ctx.globalAlpha = 1;
 }
@@ -1234,6 +1313,18 @@ function drawGates(ctx, gates, cam, gameTime) {
     if (g.x + g.w < cam.x - 20 || g.x > cam.x + VIEW_W + 20) continue;
     if (g.kind === 'magicBarrier') {
       if (g.state !== 'active') continue;              // dispelled: gone
+      // §55 Phase 10 METAL frame: riveted posts flanking the wall.
+      ctx.fillStyle = '#2e3238';
+      ctx.fillRect(g.x - 6, g.y - 6, 5, g.h + 12);     // left post
+      ctx.fillRect(g.x + g.w + 1, g.y - 6, 5, g.h + 12); // right post
+      ctx.fillStyle = '#454a52';                       // rivet heads
+      ctx.fillRect(g.x - 5, g.y - 2, 2, 2);
+      ctx.fillRect(g.x - 5, g.y + g.h - 4, 2, 2);
+      ctx.fillRect(g.x + g.w + 3, g.y - 2, 2, 2);
+      ctx.fillRect(g.x + g.w + 3, g.y + g.h - 4, 2, 2);
+      ctx.fillStyle = 'rgba(160,168,180,0.35)';        // scratch
+      ctx.fillRect(g.x - 5, g.y + g.h * 0.3, 4, 1);
+      ctx.fillRect(g.x + g.w + 2, g.y + g.h * 0.55, 4, 1);
       ctx.fillStyle = 'rgba(120,60,190,0.34)';         // wall body
       ctx.fillRect(g.x, g.y, g.w, g.h);
       for (let b = 0; b < 4; b += 1) {                 // shimmer bands
@@ -1257,6 +1348,15 @@ function drawGates(ctx, gates, cam, gameTime) {
       ctx.fillStyle = '#3a4050';
       ctx.fillRect(g.x + 2, g.y + 2, g.w - 4, 6);      // lintel band
       ctx.fillRect(g.x + 2, g.y + g.h - 8, g.w - 4, 6);
+      // §55 Phase 10 METAL recipe: riveted bands + scratches on the slab.
+      ctx.fillStyle = '#454a52';                       // rivet heads
+      ctx.fillRect(g.x + 4, g.y + 4, 2, 2);
+      ctx.fillRect(g.x + g.w - 7, g.y + 4, 2, 2);
+      ctx.fillRect(g.x + 4, g.y + g.h - 6, 2, 2);
+      ctx.fillRect(g.x + g.w - 7, g.y + g.h - 6, 2, 2);
+      ctx.fillStyle = 'rgba(160,168,180,0.3)';         // scratches
+      ctx.fillRect(g.x + 6, g.y + g.h * 0.35, g.w - 14, 1);
+      ctx.fillRect(g.x + 10, g.y + g.h * 0.62, g.w - 22, 1);
       // the frozen rune clock: ring + hands locked mid-tick (deterministic)
       const cx = g.x + g.w / 2;
       const cy = g.y + g.h / 2;
@@ -1284,13 +1384,27 @@ function drawDashTrail(ctx, player, game) {
   const trail = player.trail;
   if (!trail || trail.length === 0 || player.dashT <= 0) return;
   const color = CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara;
+  // §57 Phase 10 styling: each afterimage is a translucent character
+  // SILHOUETTE (head + torso + cloak wedge) fading 0.4 → 0 over
+  // DASH_TRAIL_FADE — not a plain block. Rect-only art, no outline pass.
   for (let i = 0; i < trail.length; i += 1) {
     const age = game.gameTime - trail[i].t;
-    const a = Math.max(0, 0.4 * (1 - age / 0.25));      // 0.4 → 0 over 0.25 s
+    const a = Math.max(0, 0.4 * (1 - age / DASH_TRAIL_FADE));   // 0.4 → 0
     if (a <= 0) continue;
+    const t = trail[i];
     ctx.globalAlpha = a;
     ctx.fillStyle = color;
-    ctx.fillRect(trail[i].x, trail[i].y, player.w, player.h);
+    // head
+    ctx.fillRect(t.x + player.w * 0.30, t.y + 2, player.w * 0.40, player.h * 0.16);
+    // torso
+    ctx.fillRect(t.x + player.w * 0.18, t.y + player.h * 0.20,
+                 player.w * 0.64, player.h * 0.42);
+    // legs
+    ctx.fillRect(t.x + player.w * 0.24, t.y + player.h * 0.62,
+                 player.w * 0.52, player.h * 0.36);
+    // trailing cloak wedge (behind the motion)
+    ctx.fillRect(t.x + player.w * 0.06, t.y + player.h * 0.24,
+                 player.w * 0.16, player.h * 0.34);
   }
   ctx.globalAlpha = 1;
 }
@@ -1319,6 +1433,97 @@ function drawShieldAura(ctx, player, game) {
 function drawSlowMoTint(ctx) {
   ctx.fillStyle = 'rgba(157,78,221,0.07)';
   ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+}
+
+// §57 Phase 10 COOLDOWN RING: the active character's SPECIAL (K) cooldown
+// recovery, drawn as an arc around the sprite that sweeps closed as the
+// ability re-arms. Character-colored, subtle, presentation only. The ring
+// vanishes the instant the cooldown ends (ready state = no clutter).
+const SPECIAL_CD_MAX = { sara: DASH_COOLDOWN, raha: SLAM_COOLDOWN, aram: SLOWMO_COOLDOWN };
+function drawCooldownRing(ctx, player) {
+  const cd = player.cooldowns[player.character].special;
+  if (cd <= 0) return;                                // ready: nothing drawn
+  const max = SPECIAL_CD_MAX[player.character] || 1;
+  const frac = Math.max(0, Math.min(1, cd / max));    // 1 → 0 as it recovers
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const r = Math.max(player.w, player.h) * 0.72;
+  ctx.strokeStyle = CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara;
+  ctx.globalAlpha = 0.28 + (1 - frac) * 0.34;         // brightens as it closes
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  // sweep starts at 12 o'clock, runs clockwise, remaining fraction drawn
+  ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 1;
+}
+
+// §57 Phase 10 DAMAGE FLASH: red full-screen, 0.15 s, decaying alpha —
+// drawn above the world (and above the slow-mo tint), under the fog and
+// vignette so the frame edges stay composed. Pure presentation state.
+function drawDamageFlash(ctx, game) {
+  if (!game.damageFlashT || game.damageFlashT <= 0) return;
+  const a = Math.max(0, Math.min(1, game.damageFlashT / DAMAGE_FLASH_T));
+  ctx.fillStyle = 'rgba(160,20,30,' + (DAMAGE_FLASH_ALPHA * a).toFixed(3) + ')';
+  ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+}
+
+// §56 Phase 10 ACTIVE-CHARACTER SELF-GLOW: a subtle character-colored aura
+// behind the sprite — layered alpha circles, never shadowBlur (§78). Drawn
+// BEFORE the sprite so the character reads as the scene's light source.
+function drawSelfGlow(ctx, player, game) {
+  const color = CHARACTER_COLORS[player.character] || CHARACTER_COLORS.sara;
+  const cx = player.x + player.w / 2;
+  const cy = player.y + player.h / 2;
+  const breathe = 0.5 + 0.5 * Math.sin(game.gameTime * 2.2);
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.045 + breathe * 0.02;
+  ctx.beginPath();
+  ctx.arc(cx, cy, player.w * 1.05 + breathe * 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 0.028 + breathe * 0.014;
+  ctx.beginPath();
+  ctx.arc(cx, cy, player.w * 1.55 + breathe * 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
+// §55 Phase 10 RIM LIGHT: the nearest torch (authored set dressing) paints
+// a soft light edge on the character's torch-facing side. Proximity-faded;
+// layered alpha strips, no gradients per fill (cheap + §78-safe).
+function drawRimLight(ctx, player, level, game) {
+  let best = null;
+  let bestD = Infinity;
+  const px = player.x + player.w / 2;
+  const py = player.y + player.h / 2;
+  for (let ci = 0; ci < level.chapters.length; ci += 1) {
+    const ch = level.chapters[ci];
+    const dr = ch.dressing;
+    if (!dr) continue;
+    for (let di = 0; di < dr.length; di += 1) {
+      if (dr[di].kind !== 'torch') continue;
+      const tx = dr[di].x + 4;                    // flame anchor (pole top)
+      const ty = dr[di].y - 74;
+      const dx = tx - px;
+      const dy = ty - py;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < bestD) { bestD = d; best = { dx, dy }; }
+    }
+  }
+  if (!best || bestD > TORCH_LIGHT_RANGE) return;
+  const k = 1 - bestD / TORCH_LIGHT_RANGE;            // 0..1 proximity
+  const flick = 0.82 + 0.18 * Math.sin(game.gameTime * 7.3 + 1.1);
+  const a = 0.20 * k * flick;
+  const side = best.dx >= 0 ? player.x + player.w : player.x;   // lit edge
+  const grow = 1 + Math.abs(best.dx) / 320;
+  ctx.fillStyle = 'rgba(232,150,70,' + a.toFixed(3) + ')';      // torch-warm
+  ctx.fillRect(side - (best.dx >= 0 ? 2 : 0), player.y + 4,
+               2 + 2 * grow * k, player.h - 8);
+  ctx.globalAlpha = a * 0.5;
+  ctx.fillRect(side - (best.dx >= 0 ? 5 : 0), player.y + 10,
+               5 + 3 * grow * k, player.h - 20);
+  ctx.globalAlpha = 1;
 }
 
 // §20.2 unlock tutorials: 3-5 s NON-BLOCKING hints — a translucent plate
@@ -1716,16 +1921,18 @@ export function createRenderer(canvas) {
   }
 
   // ---- §55 layer 4: silhouetted trees + ruined pillars (420px tiles) -----
-  function drawTree(tx, baseY, h) {
+  // §56 Phase 10 WIND: the canopy blobs drift ±2px on the render clock
+  // (deterministic sine per tile — §72; trunks stay planted).
+  function drawTree(tx, baseY, h, sway) {
     ctx.fillRect(tx, baseY - h, 10, h);            // trunk
-    ctx.fillRect(tx - 30, baseY - h - 26, 70, 24); // canopy blobs
-    ctx.fillRect(tx - 22, baseY - h - 44, 54, 20);
-    ctx.fillRect(tx - 12, baseY - h - 58, 34, 16);
-    ctx.fillRect(tx - 38, baseY - h - 18, 14, 10); // jagged canopy edges
-    ctx.fillRect(tx + 28, baseY - h - 14, 12, 8);
+    ctx.fillRect(tx - 30 + sway, baseY - h - 26, 70, 24); // canopy blobs
+    ctx.fillRect(tx - 22 + sway * 0.7, baseY - h - 44, 54, 20);
+    ctx.fillRect(tx - 12 + sway * 0.5, baseY - h - 58, 34, 16);
+    ctx.fillRect(tx - 38 + sway * 1.2, baseY - h - 18, 14, 10); // jagged edges
+    ctx.fillRect(tx + 28 + sway, baseY - h - 14, 12, 8);
   }
 
-  function drawTrees(cam) {
+  function drawTrees(cam, t) {
     const offX = cam.x * PARALLAX_TREES;
     const offY = cam.y * PARALLAX_TREES;
     const baseY = TREE_BASE_Y - offY;
@@ -1734,9 +1941,10 @@ export function createRenderer(canvas) {
     for (let k = k0; k <= k1; k += 1) {
       const v = mod(k * 73 + 11, 97);              // deterministic tile variant
       const bx = k * TREE_PERIOD - offX;
+      const sway = Math.sin(t * WIND_SWAY_RATE * 0.8 + k * 0.9) * 2;
       if (v < 56) {
         ctx.fillStyle = TREE_TONE;
-        drawTree(bx + 40 + (v % 5) * 14, baseY, 132 + (v % 7) * 16);
+        drawTree(bx + 40 + (v % 5) * 14, baseY, 132 + (v % 7) * 16, sway);
       } else if (v < 68) {
         const ch = 84 + (v % 4) * 18;              // ruined pillar
         ctx.fillStyle = PILLAR_TONE;
@@ -1746,8 +1954,8 @@ export function createRenderer(canvas) {
         ctx.fillRect(bx + 78, baseY - 10 - ch - 3, 8, 3);
       } else if (v < 80) {
         ctx.fillStyle = TREE_TONE;                 // small tree pair
-        drawTree(bx + 50, baseY, 88 + (v % 3) * 14);
-        drawTree(bx + 240, baseY, 76 + (v % 5) * 10);
+        drawTree(bx + 50, baseY, 88 + (v % 3) * 14, sway * 0.8);
+        drawTree(bx + 240, baseY, 76 + (v % 5) * 10, -sway * 0.6);
       }
       // else: clearing — deliberate negative space in the forest line
     }
@@ -1769,6 +1977,105 @@ export function createRenderer(canvas) {
     ctx.fillRect(0, 500, LOGICAL_W, 120);
   }
 
+  // ---- §55 Phase 10 PROCEDURAL PLATFORM TEXTURES --------------------------
+  // Deterministic seeded noise per platform (stable geometry hash — the
+  // SAME pattern every frame, NO shimmer, §72/§55) in three material
+  // recipes: stone (cracks + moss + edge highlights), wood (breakables:
+  // §55 palette + grain + nail heads + vertical cracks + red highlights),
+  // dirt (ground strips: speckles + grass tufts). The metal recipe (§55
+  // scratches + rivets) is applied to the §50 gate frames in drawGates.
+  function texHash(p, salt) {
+    let h = (p.x * 31 + p.y * 17 + p.w * 13 + salt * 101) % 2147483647;
+    h = (h * 48271) % 2147483647;
+    return h;
+  }
+
+  function drawPlatformTexture(p) {
+    const h = texHash(p, 7);
+    if (p.breakable) {
+      // ---- wood (§55 breakable palette) ---------------------------------
+      ctx.fillStyle = '#5a4030';
+      ctx.fillRect(p.x, p.y, p.w, p.h);                    // aged plank body
+      ctx.fillStyle = '#6a4a38';
+      ctx.fillRect(p.x, p.y, p.w, 3);                      // lit top edge
+      // vertical grain strokes (darker wood)
+      ctx.fillStyle = '#2a1e14';
+      const grainN = Math.max(2, Math.min(4, Math.floor(p.w / 36)));
+      for (let i = 0; i < grainN; i += 1) {
+        const gx = p.x + 6 + ((h >> (i * 3)) % Math.max(1, p.w - 12));
+        ctx.fillRect(gx, p.y + 3, 2, p.h - 5);
+      }
+      // nail heads near the corners
+      ctx.fillStyle = '#1a120c';
+      ctx.fillRect(p.x + 4, p.y + 4, 3, 3);
+      ctx.fillRect(p.x + p.w - 7, p.y + 4, 3, 3);
+      ctx.fillRect(p.x + 4, p.y + p.h - 7, 3, 3);
+      ctx.fillRect(p.x + p.w - 7, p.y + p.h - 7, 3, 3);
+      // §55 vertical cracks + subtle red highlights
+      ctx.fillStyle = '#241a12';
+      ctx.fillRect(p.x + p.w * 0.42, p.y + 3, 2, p.h - 5);
+      ctx.fillStyle = 'rgba(138,42,32,0.55)';
+      ctx.fillRect(p.x + p.w * 0.42 + 2, p.y + 4, 1, p.h - 7);
+      ctx.fillRect(p.x + p.w * 0.7, p.y + 5, 1, p.h - 10);
+      return;
+    }
+    if (p.h >= 60) {
+      // ---- dirt ground strip ---------------------------------------------
+      ctx.fillStyle = GROUND_FILL;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillStyle = GROUND_EDGE;
+      ctx.fillRect(p.x, p.y, p.w, 3);
+      // speckles: two hashed rows of dark grit
+      ctx.fillStyle = '#0c1018';
+      const speckN = Math.min(26, Math.floor(p.w / 42));
+      for (let i = 0; i < speckN; i += 1) {
+        const sx = p.x + ((h >> (i % 15)) % Math.max(1, p.w - 4));
+        const sy = p.y + 10 + ((h >> ((i + 7) % 13)) % Math.max(1, p.h - 16));
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+      // grass tufts on the top edge
+      ctx.fillStyle = '#1e3324';
+      const tuftN = Math.min(14, Math.floor(p.w / 80));
+      for (let i = 0; i < tuftN; i += 1) {
+        const tx = p.x + 8 + ((h >> (i * 2 + 3)) % Math.max(1, p.w - 20));
+        ctx.fillRect(tx, p.y - 4, 2, 5);
+        ctx.fillRect(tx + 3, p.y - 7, 2, 8);
+        ctx.fillRect(tx + 6, p.y - 3, 2, 4);
+      }
+    } else {
+      // ---- stone (§55 platform palette: #181c24 body, #2a2f3a lit edge) ---
+      ctx.fillStyle = '#181c24';
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.fillStyle = '#2a2f3a';
+      ctx.fillRect(p.x, p.y, p.w, 3);
+      // cracks: dark segments at hashed offsets — visible against the body
+      ctx.fillStyle = '#0a0d14';
+      const crackN = p.w > 90 ? 3 : 2;
+      for (let i = 0; i < crackN; i += 1) {
+        const cx = p.x + 10 + ((h >> (i * 4 + 1)) % Math.max(1, p.w - 24));
+        const cy = p.y + 6 + ((h >> (i * 3 + 5)) % Math.max(1, p.h - 14));
+        ctx.fillRect(cx, cy, 2, 8 + ((h >> (i + 2)) % 6));   // vertical
+        ctx.fillRect(cx + 2, cy + 8, 7, 2);                  // step out
+      }
+      // moss patches near the lit top edge
+      ctx.fillStyle = 'rgba(38,58,34,0.72)';
+      const mossN = 2;
+      for (let i = 0; i < mossN; i += 1) {
+        const mx = p.x + 14 + ((h >> (i * 5 + 9)) % Math.max(1, p.w - 40));
+        ctx.fillRect(mx, p.y + 2, 10 + ((h >> (i + 4)) % 8), 4);
+      }
+      // edge highlight chips (weathered stone catching light)
+      ctx.fillStyle = '#3a4050';
+      ctx.fillRect(p.x + 6, p.y + 3, 6, 2);
+      ctx.fillRect(p.x + p.w - 18, p.y + 3, 8, 2);
+    }
+    // amended §55 shared treatment: subtle under-edge shadow + side shade.
+    ctx.fillStyle = PLATFORM_SHADOW;
+    ctx.fillRect(p.x, p.y + p.h - 2, p.w, 2);
+    ctx.fillRect(p.x, p.y + 3, 2, p.h - 5);
+    ctx.fillRect(p.x + p.w - 2, p.y + 3, 2, p.h - 5);
+  }
+
   function drawPlatforms(platforms, cam, brokenIds) {
     // Geometry rendering (§55 platform tones + amended edge treatment).
     // Render-only culling against the ZOOMED camera view (§42/§78): the
@@ -1781,17 +2088,141 @@ export function createRenderer(canvas) {
       const p = platforms[i];
       if (p.x + p.w < left || p.x > right) continue;
       if (p.breakable && brokenIds && brokenIds.has(p.id)) continue;
-      ctx.fillStyle = GROUND_FILL;
-      ctx.fillRect(p.x, p.y, p.w, p.h);
-      ctx.fillStyle = GROUND_EDGE;
-      ctx.fillRect(p.x, p.y, p.w, 3);            // lit top edge
-      // Amended §55: subtle 1-2px dark shadow under each platform edge +
-      // side shading — the platform visual treatment matches the x1.3
-      // world scale.
-      ctx.fillStyle = PLATFORM_SHADOW;
-      ctx.fillRect(p.x, p.y + p.h - 2, p.w, 2);            // under-edge shadow
-      ctx.fillRect(p.x, p.y + 3, 2, p.h - 5);              // left side shade
-      ctx.fillRect(p.x + p.w - 2, p.y + 3, 2, p.h - 5);    // right side shade
+      drawPlatformTexture(p);
+    }
+  }
+
+  // ---- §55 Phase 10 SET DRESSING (authored per chapter) --------------------
+  // Broken stone statues, wooden fences, torn banners, skeletons, cobwebs,
+  // and torch poles (the ambient light sources). World space, drawn ON the
+  // ground over the platforms but BEHIND every gameplay entity; culled
+  // against the zoomed view (§42/§78). Torch flames flicker on the render
+  // clock with a stable per-torch phase (§72 — no randomness).
+  function drawDressingTorch(ctx, d, t) {
+    const px = d.x;
+    const base = d.y;
+    const flameX = px + 4;
+    const flameY = base - 74;
+    // pole + sconce
+    ctx.fillStyle = '#241a10';
+    ctx.fillRect(px - 2, base - 70, 4, 70);
+    ctx.fillRect(px - 5, base - 4, 10, 4);                 // foot plate
+    ctx.fillStyle = '#38251a';
+    ctx.fillRect(px - 6, base - 76, 12, 7);                // sconce basket
+    // flame: layered warm rects with deterministic flicker
+    const fl = 0.72 + 0.28 * Math.sin(t * 6.3 + px * 0.07);
+    ctx.fillStyle = '#e07b2a';
+    ctx.fillRect(flameX - 4, flameY - 9 * fl, 8, 12 * fl);
+    ctx.fillStyle = '#f2a04c';
+    ctx.fillRect(flameX - 2, flameY - 6 * fl, 4, 8 * fl);
+    ctx.fillStyle = '#ffe9c4';
+    ctx.fillRect(flameX - 1, flameY - 3 * fl, 2, 4 * fl);
+    // radial glow: layered alpha shells (§78 — never shadowBlur)
+    ctx.fillStyle = '#e8a45c';
+    ctx.globalAlpha = TORCH_GLOW_ALPHA;
+    ctx.beginPath();
+    ctx.arc(flameX, flameY - 2, 46, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = TORCH_GLOW_ALPHA * 0.66;
+    ctx.beginPath();
+    ctx.arc(flameX, flameY - 2, 28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = TORCH_GLOW_ALPHA * 0.4;
+    ctx.beginPath();
+    ctx.arc(flameX, flameY - 2, 66, 0, Math.PI * 2);
+    ctx.fill();
+    // warm ground pool
+    ctx.globalAlpha = 0.10 + 0.05 * fl;
+    ctx.beginPath();
+    ctx.ellipse(px, base - 2, 42, 9, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawDressing(ctx, level, cam, t) {
+    const left = cam.x - 120;
+    const right = cam.x + VIEW_W + 120;
+    for (let ci = 0; ci < level.chapters.length; ci += 1) {
+      const ch = level.chapters[ci];
+      const dr = ch.dressing;
+      if (!dr || dr.length === 0) continue;
+      for (let di = 0; di < dr.length; di += 1) {
+        const d = dr[di];
+        if (d.x < left || d.x > right) continue;           // §42 culling
+        const s = d.s || 0;
+        if (d.kind === 'statue') {
+          // broken stone statue: pedestal + torso stump + fallen head
+          ctx.fillStyle = '#1a2133';
+          ctx.fillRect(d.x - 16, d.y - 12, 32, 12);        // pedestal
+          ctx.fillRect(d.x - 10, d.y - 46, 20, 34);        // torso stump
+          ctx.fillRect(d.x - 13, d.y - 46, 5, 12);         // shoulder chip
+          ctx.fillStyle = '#2a3348';                       // moonlit edge
+          ctx.fillRect(d.x - 10, d.y - 46, 20, 2);
+          ctx.fillRect(d.x - 16, d.y - 12, 32, 2);
+          ctx.fillStyle = '#10141f';
+          ctx.fillRect(d.x + (s % 2 === 0 ? 14 : -26), d.y - 14, 12, 10); // fallen head
+          ctx.fillStyle = '#242c40';
+          ctx.fillRect(d.x - 7, d.y - 40, 3, 18);          // weathered seam
+          if (s >= 3) ctx.fillRect(d.x - 16, d.y - 52, 8, 8);  // crown remnant
+        } else if (d.kind === 'fence') {
+          // wooden fence: leaning posts + two rails (s = post count 2..5)
+          const posts = 2 + (s % 4);
+          ctx.fillStyle = '#3a2a1c';
+          for (let i = 0; i <= posts; i += 1) {
+            const fx = d.x + i * 26;
+            const lean = i % 2 === 0 ? 0 : 2;
+            ctx.fillRect(fx - 2 + lean, d.y - 34, 4, 34);
+          }
+          ctx.fillStyle = '#2a1e14';
+          ctx.fillRect(d.x - 4, d.y - 28, posts * 26 + 8, 3);   // rail 1
+          ctx.fillRect(d.x - 4, d.y - 16, posts * 26 + 8, 3);   // rail 2
+        } else if (d.kind === 'banner') {
+          // torn banner: pole + hanging cloth strips (s picks the tone)
+          const cloth = s % 3 === 0 ? '#6a1016' : (s % 3 === 1 ? '#1e3a5a' : '#3a2a4a');
+          ctx.fillStyle = '#241a10';
+          ctx.fillRect(d.x - 2, d.y - 86, 4, 86);           // pole
+          ctx.fillRect(d.x - 8, d.y - 88, 16, 4);          // crossarm
+          ctx.fillStyle = cloth;
+          ctx.fillRect(d.x - 6, d.y - 84, 9, 52);           // long strip
+          ctx.fillRect(d.x + 5, d.y - 84, 6, 36);          // short strip
+          ctx.fillRect(d.x - 4, d.y - 46, 5, 12);          // torn tail
+          ctx.fillStyle = '#0a0d14';
+          ctx.fillRect(d.x - 6, d.y - 70, 9, 2);           // faded band
+        } else if (d.kind === 'bones') {
+          // skeleton: ribcage arcs + skull (s scales the layout)
+          const k = 1 + (s % 3) * 0.15;
+          ctx.globalAlpha = 0.85;
+          ctx.fillStyle = '#9aa0ae';
+          ctx.fillRect(d.x - 10 * k, d.y - 4, 20 * k, 4);      // spine
+          for (let i = 0; i < 4; i += 1) {
+            ctx.fillRect(d.x - 12 * k, d.y - 4 - i * 6, 4, 5); // ribs L
+            ctx.fillRect(d.x + 8 * k, d.y - 4 - i * 6, 4, 5);  // ribs R
+          }
+          ctx.fillRect(d.x - 14 * k, d.y - 30, 10, 9);         // skull
+          ctx.fillRect(d.x - 11 * k, d.y - 27, 2, 2);          // eye socket
+          ctx.fillStyle = '#7a7f8c';
+          ctx.fillRect(d.x + 12 * k, d.y - 8, 8, 3);           // scattered bone
+          ctx.globalAlpha = 1;
+        } else if (d.kind === 'cobweb') {
+          // corner web under a platform edge: radial spokes + dew
+          ctx.strokeStyle = 'rgba(200,208,230,0.22)';
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let i = 0; i < 4; i += 1) {
+            ctx.moveTo(d.x, d.y);
+            ctx.lineTo(d.x - 18 + i * 12, d.y + 22);
+          }
+          ctx.moveTo(d.x - 18, d.y + 10);
+          ctx.lineTo(d.x + 18, d.y + 10);
+          ctx.moveTo(d.x - 13, d.y + 18);
+          ctx.lineTo(d.x + 13, d.y + 18);
+          ctx.stroke();
+          ctx.fillStyle = 'rgba(220,228,250,0.4)';
+          ctx.fillRect(d.x - 6, d.y + 9, 1.5, 1.5);            // dew drop
+        } else if (d.kind === 'torch') {
+          drawDressingTorch(ctx, d, t);
+        }
+      }
     }
   }
 
@@ -1821,6 +2252,9 @@ export function createRenderer(canvas) {
     // §57 amended: soft ellipse drop shadow under the active character
     // (before the sprite, so the character stands ON the shadow).
     drawDropShadow(ctx, player, level);
+    // §56 Phase 10: the active character's subtle self-glow — the scene's
+    // own light source, behind the sprite.
+    drawSelfGlow(ctx, player, game);
     // §23 dash afterimages trail behind the active sprite.
     drawDashTrail(ctx, player, game);
     // §22: the sprite flashes ~20 Hz while invulnerable.
@@ -1831,12 +2265,18 @@ export function createRenderer(canvas) {
     else if (player.character === 'aram') drawAram(ctx, player, game);
     else drawPlayerPlaceholder(ctx, player);
     if (blink) ctx.globalAlpha = 1;
+    // §55 Phase 10: rim light from the nearest torch, over the sprite edge.
+    drawRimLight(ctx, player, level, game);
     // §25.2 Shield aura wraps the sprite while active.
     drawShieldAura(ctx, player, game);
+    // §57 Phase 10: the special-ability cooldown ring around the sprite.
+    drawCooldownRing(ctx, player);
   }
 
   // ---- §55 layer 5: foreground grass (fastest layer, screen-bottom anchor)
-  function drawGrass(cam) {
+  // §56 Phase 10 WIND: blades sway on the render clock (deterministic sine
+  // per blade — no randomness, §72; gentle ±WIND_SWAY_PX).
+  function drawGrass(cam, t) {
     const offX = cam.x * PARALLAX_GRASS;
     ctx.fillStyle = GRASS_TONE;
     ctx.fillRect(0, 714, LOGICAL_W, 6);          // continuous root strip
@@ -1846,12 +2286,45 @@ export function createRenderer(canvas) {
       const v = mod(k * 53 + 7, 89);
       const bx = k * GRASS_PERIOD - offX;
       const tx = bx + 40 + (v % 7) * 24;
-      ctx.fillRect(tx, 702, 3, 12 + (v % 5) * 3);        // tuft blades
-      ctx.fillRect(tx + 5, 696, 3, 18 + (v % 3) * 4);
-      ctx.fillRect(tx + 10, 700, 3, 14 + (v % 4) * 3);
-      ctx.fillRect(tx + 15, 694, 3, 20 + (v % 5) * 2);
-      if (v % 19 === 3) ctx.fillRect(bx + 190, 662, 4, 52);  // sparse tall blade
+      const sway = Math.sin(t * WIND_SWAY_RATE + k * 1.3) * WIND_SWAY_PX;
+      ctx.fillRect(tx + sway * 0.4, 702, 3, 12 + (v % 5) * 3);   // tuft blades
+      ctx.fillRect(tx + 5 + sway, 696, 3, 18 + (v % 3) * 4);
+      ctx.fillRect(tx + 10 + sway * 0.6, 700, 3, 14 + (v % 4) * 3);
+      ctx.fillRect(tx + 15 + sway * 0.8, 694, 3, 20 + (v % 5) * 2);
+      if (v % 19 === 3) {
+        ctx.fillRect(bx + 190 + sway * 1.4, 662, 4, 52);   // sparse tall blade
+      }
     }
+  }
+
+  // ---- atmosphere (amended §55 Phase 10): fog sheet between the background
+  // and midground bands — distant objects read darker through it
+  // (atmospheric perspective). Cached gradient; logical space.
+  let fogSheetGradient = null;
+  function drawFogSheet() {
+    if (!fogSheetGradient) {
+      fogSheetGradient = ctx.createLinearGradient(0, 470, 0, 660);
+      fogSheetGradient.addColorStop(0, 'rgba(13,20,32,0)');
+      fogSheetGradient.addColorStop(0.5, 'rgba(13,20,32,0.40)');
+      fogSheetGradient.addColorStop(1, 'rgba(13,20,32,0)');
+    }
+    ctx.fillStyle = fogSheetGradient;
+    ctx.fillRect(0, 470, LOGICAL_W, 190);
+  }
+
+  // ---- §56 Phase 10 DISTANT LIGHTNING: VISUAL ONLY — never a gameplay
+  // effect. Act 2+; deterministic schedule (period + fixed phase): two
+  // stacked horizon light bands for LIGHTNING_FLASH_T seconds every
+  // LIGHTNING_PERIOD. Drawn right after the sky/stars, before the castle.
+  function drawLightning(game, t) {
+    if (game.currentAct < 2) return;
+    const phase = t % LIGHTNING_PERIOD;
+    if (phase > LIGHTNING_FLASH_T) return;
+    const fade = 1 - phase / LIGHTNING_FLASH_T;        // 1 → 0 within the flash
+    ctx.fillStyle = 'rgba(220,232,255,' + (0.10 * fade).toFixed(3) + ')';
+    ctx.fillRect(0, 0, LOGICAL_W, 300);
+    ctx.fillStyle = 'rgba(232,240,255,' + (0.06 * fade).toFixed(3) + ')';
+    ctx.fillRect(120, 210, LOGICAL_W - 240, 190);      // horizon-weighted
   }
 
   // ---- atmosphere: bottom fog + dark vignette (screen space, cached) -----
@@ -1902,8 +2375,14 @@ export function createRenderer(canvas) {
   // world FX layers (gates under entities, projectiles/particles above).
   // Phase 9 adds the collectible layer (gates/rings → collectibles →
   // enemies → player) and the §65 HUD on top of the vignette.
+  // Phase 10 adds: §56 distant lightning + the §55 fog sheet between the
+  // background and midground bands (atmospheric perspective), §55 set
+  // dressing + torch glows on the ground plane, per-kind particle art
+  // (§56/§57), wind-swayed foliage, and the §57 damage flash above the
+  // world (under fog/vignette, above the slow-mo tint).
   function render(game, level, player, enemies, collectibles) {
     const cam = game.camera;
+    const t = game.gameTime;
     // §54: offset = mag * exp(-30 * age) * oscillation — the 30/s decay
     // envelope bounds every shake well inside its authored duration.
     let shakeX = 0;
@@ -1918,26 +2397,30 @@ export function createRenderer(canvas) {
     ctx.save();
     ctx.translate(shakeX, shakeY);
     drawSky();
-    drawStars(cam, game.gameTime);
+    drawLightning(game, t);                            // §56 visual-only flash
+    drawStars(cam, t);
     drawClouds(cam);
-    drawLightBehindCastle(cam, game, game.gameTime);   // amended §55 canon
-    drawCastle(cam, game, game.gameTime);
-    drawTrees(cam);
+    drawLightBehindCastle(cam, game, t);               // amended §55 canon
+    drawCastle(cam, game, t);
+    drawFogSheet();                                    // §55 Phase 10 band
+    drawTrees(cam, t);                                 // §56 wind-swayed
     drawHorizonLight(game);                            // Act 3: horizon lightens
     ctx.save();
     ctx.scale(ZOOM, ZOOM);                             // §7/§53: global ZOOM 1.25
     ctx.translate(-cam.x, -cam.y);                     // world space (§53)
     drawPlatforms(level.allPlatforms, cam, game.brokenPlatformIds);
-    drawGates(ctx, level.gates, cam, game.gameTime);   // §50 gates
+    drawDressing(ctx, level, cam, t);                  // §55 Phase 10 dressing
+    drawGates(ctx, level.gates, cam, t);               // §50 gates
     drawRings(ctx, game.rings, cam);                   // §24 impact rings
-    drawCollectibles(ctx, collectibles, cam, game.gameTime);   // §48/§58 (Phase 9)
+    drawCollectibles(ctx, collectibles, cam, t);       // §48/§58 (Phase 9)
     drawEnemies(game, enemies || [], cam);
     drawPlayer(game, player, level);
     drawProjectiles(ctx, game.projectiles, cam);       // §21 knives + magic
-    drawParticles(ctx, game.particles, cam);           // §57 feedback chips
+    drawParticles(ctx, game.particles, cam, t);        // §56/§57 FX + ambience
     ctx.restore();
-    drawGrass(cam);
+    drawGrass(cam, t);                                 // §56 wind-swayed blades
     if (game.slowMoActive) drawSlowMoTint(ctx);        // §25.1 time-sheen
+    drawDamageFlash(ctx, game);                        // §57 Phase 10 red flash
     ctx.restore();                                     // end §54 shake frame
     drawFog();
     drawTutorial(ctx, game);                           // §20.2 non-blocking hint

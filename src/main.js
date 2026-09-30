@@ -43,6 +43,7 @@ import {
   TUTORIAL_DURATION,
   GATE_OPEN_RANGE,
   LEVEL_COMPLETION_SCORE,
+  SHAKE_MODES,
 } from './constants.js';
 import { createInput } from './input.js';
 import './physics.js';
@@ -54,6 +55,7 @@ import { createPlayer, updatePlayer, switchCharacter, playerSnapshot, resetPlaye
 import { createEnemies, updateEnemies, damageEnemy, enemiesSnapshot } from './entities/enemy.js';
 import { updateProjectiles, projectilesSnapshot } from './entities/projectile.js';
 import { updateParticles, spawnBurst, particlesSnapshot } from './entities/particle.js';
+import { updateAmbient, resetAmbient } from './ambient.js';
 import { createCollectibles, updateCollectibles, collectiblesSnapshot } from './entities/coin.js';
 import { readSave, writeSave, computeRank, seedUnlockedCharacters } from './save.js';
 
@@ -92,6 +94,8 @@ const game = {
   brokenPlatformIds: new Set(), // §24/§50 broken breakables
   solidsDirty: false,           // rebuild the active collision view when set
   shake: null,                  // §54 {mag, t, T} while a shake is live
+  shakeMode: 'full',            // §54 session setting: full|reduced|off
+  damageFlashT: 0,              // §57 red full-screen flash remaining, s
   lastAbilityUse: null,         // §20.1 switch-combo pairing stamp
   comboBoost: null,             // §20.1 armed incoming-ability modifier
   lastCombo: null,              // §20.1 consumed combo record (metrics)
@@ -280,6 +284,8 @@ function startRun() {
   game.slowMoActive = false;           // §25.1 temporary effects end
   game.slowMoT = 0;
   game.shake = null;                   // §54
+  game.damageFlashT = 0;               // §57 Phase 10
+  resetAmbient();                      // §56 Phase 10: fresh ambience
   game.tutorial = null;                // §20.2 (re-shown below)
   game.comboBoost = null;              // §20.1
   game.lastCombo = null;
@@ -318,6 +324,7 @@ function startRun() {
 function gameOver() {
   if (game.screen !== 'playing') return;
   game.screen = 'dead';
+  game.damageFlashT = 0;               // §57: no flash over the death screen
   game.lastRank = computeRank(game.score, game.damageTaken);   // §62 game-over rank
   writeSave(game, 'gameover');         // §63 trigger 4: banks run coins + rank
   loop.enterPause('screen');
@@ -334,6 +341,7 @@ function completeLevel() {
   if (game.screen !== 'playing' || player.dead) return false;
   game.score += LEVEL_COMPLETION_SCORE;        // §58: level completion, once
   game.screen = 'victory';
+  game.damageFlashT = 0;               // §57: clean victory frame
   game.lastRank = computeRank(game.score, game.damageTaken);   // §62 bonus first
   writeSave(game, 'victory');          // §63 trigger 4: banks run coins + rank
   loop.enterPause('screen');
@@ -435,6 +443,10 @@ const loop = createLoop({
     updateProjectiles(game, game.projectiles, enemies, level, dt);   // §21 (Phase 7)
     updateCollectibles(game, player, collectibles);    // §48/§58 (Phase 9)
     updateParticles(game, dt);                        // §57 FX (player domain)
+    // §56 Phase 10: act-driven ambient loops + weather (playing screens
+    // only — the world behind the title/death/victory overlays keeps its
+    // last state and simply fades out).
+    if (game.screen === 'playing') updateAmbient(game, player, dt);
 
     // Chapter/act tracking (amended §46): currentChapter derives from the
     // player's X within the authored chapter bounds. Forward transitions
@@ -460,6 +472,11 @@ const loop = createLoop({
       game.shake.t -= dt;
       if (game.shake.t <= 0) game.shake = null;
     }
+    // §57 Phase 10 damage flash: decays on the player-domain clock; the
+    // flash renders above the world while it lasts.
+    if (game.damageFlashT > 0) {
+      game.damageFlashT = Math.max(0, game.damageFlashT - dt);
+    }
     // §20.2 tutorial expiry (non-blocking: presentation state only).
     if (game.tutorial && game.gameTime > game.tutorial.until) game.tutorial = null;
     // §24/§50 active-solids rebuild (broken breakables, dispelled/opened gates).
@@ -475,6 +492,11 @@ const loop = createLoop({
   onStateChange: updateOverlays,
   onFrame: pushMetrics,
 });
+
+// §57 Phase 10 hit-stop bridge: the DEAD transition (enemy.js) requests the
+// deterministic 70 ms simulation freeze through the loop's §9 API. The
+// optional-call on `game` keeps the entity modules loop-agnostic.
+game.requestHitStop = () => loop.startHitStop();
 
 const portraitMq = window.matchMedia('(orientation: portrait)');
 const pauseOverlay = document.getElementById('pause-overlay');
@@ -569,6 +591,29 @@ resumeButton.addEventListener('touchstart', (e) => {
   loop.requestResume();
 }, { passive: false });
 
+// ---- §54/§65 shake intensity control (Phase 10, session-only setting) ----
+// Full / Reduced / Off — presentation-only magnitude scale applied at every
+// shake trigger (particle.js triggerShake). aria-pressed flips ONLY when
+// the selection changes (§70 DOM discipline); never persisted (§63 locked).
+const SHAKE_BUTTONS = Array.prototype.slice.call(
+  document.querySelectorAll('.shake-opt'));
+function setShakeMode(mode) {
+  if (SHAKE_MODES.indexOf(mode) === -1) return;
+  game.shakeMode = mode;
+  for (let i = 0; i < SHAKE_BUTTONS.length; i += 1) {
+    const b = SHAKE_BUTTONS[i];
+    b.setAttribute('aria-pressed', b.dataset.mode === mode ? 'true' : 'false');
+  }
+}
+for (let i = 0; i < SHAKE_BUTTONS.length; i += 1) {
+  const b = SHAKE_BUTTONS[i];
+  b.addEventListener('click', () => setShakeMode(b.dataset.mode));
+  b.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    setShakeMode(b.dataset.mode);
+  }, { passive: false });
+}
+
 // ---- §65 screens: Start Journey / Try Again / Travel Again ---------------
 const startButton = document.getElementById('btn-start');
 const tryAgainButton = document.getElementById('btn-try-again');
@@ -643,6 +688,10 @@ function pushMetrics(frameInfo) {
     : null;                                     // §20.1 consumed record
   M.tutorial = game.tutorial ? { key: game.tutorial.key } : null;
   M.shake = game.shake ? { mag: game.shake.mag, t: game.shake.t } : null;
+  // ---- Phase 10 instrumentation (§74) ----
+  M.hitStopRemaining = L.hitStopRemaining;      // §9/§57 kill freeze state
+  M.damageFlashT = game.damageFlashT;           // §57 red flash remaining
+  M.shakeMode = game.shakeMode;                 // §54 session setting
   // ---- Phase 9 instrumentation (§74) ----
   M.screen = game.screen;                       // §65 screen state
   M.currentRunCoins = game.currentRunCoins;     // §63 run coins
@@ -697,6 +746,9 @@ if (window.__SOM_TEST__ === true) {
     lastCombo: null,
     tutorial: null,
     shake: null,
+    hitStopRemaining: 0,
+    damageFlashT: 0,
+    shakeMode: 'full',
     screen: null,
     currentRunCoins: 0,
     collectedCoinIds: [],

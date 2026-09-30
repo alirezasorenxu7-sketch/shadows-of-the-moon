@@ -57,11 +57,15 @@ import {
   SWITCH_COMBO_WINDOW,
   COMBO_SLAM_MULT,
   COMBO_SLOWMO_MULT,
+  SHAKE_LARGE_PX,
+  SHAKE_LARGE_T,
+  LANDING_DUST_MIN_FALL,
+  LANDING_DUST_COUNT,
 } from '../constants.js';
 import { moveAndCollide } from '../physics.js';
 import { damageEnemy } from './enemy.js';
 import { spawnProjectile } from './projectile.js';
-import { spawnBurst, addRing } from './particle.js';
+import { spawnBurst, spawnDust, spawnDustCloud, addRing, triggerShake } from './particle.js';
 
 // Authored roster content (SPEC §18; amended x1.3 scale pass): hitbox, HP,
 // jumps per airborne cycle. Jump VELOCITIES are tunables in constants.js
@@ -128,6 +132,7 @@ export function createPlayer(level, characterKey = 'sara') {
     attackAnimT: 0,        // §18.1 attack pose window remaining
     specialAnimT: 0,       // §18.1 special pose window remaining
     trail: [],             // dash afterimage positions (§18.1, presentation)
+    airApexY: 0,           // §57 Phase 10: airborne apex (landing-dust metric)
   };
 }
 
@@ -181,6 +186,7 @@ export function resetPlayer(game, player, level) {
   player.attackAnimT = 0;
   player.specialAnimT = 0;
   player.trail.length = 0;
+  player.airApexY = level.spawn.y;
   return player;
 }
 
@@ -330,10 +336,12 @@ export function radialImpact(game, player, enemies, level, dmg) {
     }
   }
   if (broke) game.solidsDirty = true;                   // rebuild collision view
-  // §54 large shake + §57 impact feedback (presentation state only).
-  game.shake = { mag: 12, t: 0.25, T: 0.25 };
+  // §54 large shake (session-setting aware) + §57 impact feedback + §56
+  // dust cloud on the heavy impact (presentation state only).
+  triggerShake(game, SHAKE_LARGE_PX, SHAKE_LARGE_T);
   addRing(game, cx, cy, SLAM_RADIUS, 'rgba(230,57,70,0.55)');
   spawnBurst(game, cx, cy, '#6b6b7a', 16);
+  spawnDustCloud(game, cx, cy);
 }
 
 // ---- J attack per character (§21/§23/§24/§25.3) --------------------------------
@@ -571,6 +579,14 @@ export function updatePlayer(game, player, held, events, dt, level, enemies) {
     ay = GRAVITY + (cutActive ? VAR_JUMP_EXTRA : 0);
   }
 
+  // §57 Phase 10: track the airborne apex so the landing hook can measure
+  // the exact fall distance (presentation fact; never read by gameplay).
+  if (!player.onGround) {
+    if (player.y < player.airApexY) player.airApexY = player.y;
+  } else {
+    player.airApexY = player.y;
+  }
+
   // ---- integrate + resolve (two-pass, §39; exact kinematics) ---------------
   moveAndCollide(player, level.platforms, dt, ay, maxFall);
   if (player.onGround) {
@@ -578,6 +594,13 @@ export function updatePlayer(game, player, held, events, dt, level, enemies) {
     player.coyote = COYOTE_TIME;
     if (!wasOnGround) {
       player.lastLandAt = game.gameTime;
+      // §57 Phase 10 landing dust: fall distance > 100px (measured from the
+      // airborne apex) dusts the feet — 8–12 particles, deterministic count.
+      const fallDist = player.y - player.airApexY;
+      if (fallDist > LANDING_DUST_MIN_FALL) {
+        spawnDust(game, player.x + player.w / 2, player.y + player.h,
+                  LANDING_DUST_COUNT, false);
+      }
       // §24: the airborne slam's 90px impact fires on landing, then ends.
       if (player.slamActive) {
         player.slamActive = false;
@@ -637,5 +660,6 @@ export function playerSnapshot(player) {
     lastLandAt: player.lastLandAt,
     attackAnimT: player.attackAnimT,
     specialAnimT: player.specialAnimT,
+    airApexY: player.airApexY,
   };
 }
