@@ -83,6 +83,16 @@ function stepHitsWall(enemy, next, dir, platforms) {
   return false;
 }
 
+// §49 ADAPTIVE DIFFICULTY — effective enemy MOVEMENT speed:
+//   effectiveEnemySpeed = authoredSpeed * adaptiveSpeedMultiplier
+// (§10's own formula). The multiplier is maintained per enemy per step by
+// updateEnemies from game.adaptiveActs (latched per act at 3 consecutive
+// same-act deaths); ONLY movement speed is scaled — every timer, wind-up,
+// cooldown, damage, and score stays authored (§49).
+function spd(enemy) {
+  return enemy.speed * (enemy.speedMul || 1);
+}
+
 // One Patroller decision + movement step. Mutates only the enemy passed in.
 // patrol bounds (authored minX..maxX) constrain the enemy's left edge;
 // reaching a bound flips the facing. §34 edge detection: when the next
@@ -107,7 +117,7 @@ export function patrolStep(enemy, simDt, level) {
   }
 
   const dir = enemy.facing === 'left' ? -1 : 1;
-  let next = enemy.x + dir * enemy.speed * simDt;
+  let next = enemy.x + dir * spd(enemy) * simDt;
   let turned = false;
   if (enemy.patrol) {
     if (next <= enemy.patrol.minX) {
@@ -138,7 +148,7 @@ export function patrolStep(enemy, simDt, level) {
   }
 
   enemy.x = next;
-  enemy.vx = dir * enemy.speed;
+  enemy.vx = dir * spd(enemy);
   enemy.state = 'walk';
 }
 
@@ -149,7 +159,7 @@ export function patrolStep(enemy, simDt, level) {
 function moveToward(enemy, targetX, simDt, level) {
   const center = enemy.x + enemy.w / 2;
   const dir = targetX < center ? -1 : 1;
-  const step = enemy.speed * simDt;
+  const step = spd(enemy) * simDt;
   let next = enemy.x + dir * step;
   if (Math.abs(targetX - center) <= step) next = targetX - enemy.w / 2;   // arrive
 
@@ -168,7 +178,7 @@ function moveToward(enemy, targetX, simDt, level) {
     return;
   }
   enemy.x = next;
-  enemy.vx = dir * enemy.speed;
+  enemy.vx = dir * spd(enemy);
   enemy.facing = dir < 0 ? 'left' : 'right';
   enemy.state = 'walk';
 }
@@ -228,7 +238,7 @@ function chaserStep(enemy, player, simDt, level, flank) {
       if (flank !== 0) {
         const fTarget = pcx + flank * FLANK_OFFSET;
         const fDir = fTarget < ecx ? -1 : 1;
-        if (stepHasGround(enemy, enemy.x + fDir * enemy.speed * simDt,
+        if (stepHasGround(enemy, enemy.x + fDir * spd(enemy) * simDt,
                           fDir, level.platforms)) {
           target = fTarget;
         }
@@ -242,7 +252,7 @@ function chaserStep(enemy, player, simDt, level, flank) {
     else if (enemy.returnT === 0) enemy.chaseState = 'return';
   } else {                                              // 'return'
     const post = enemy.post;
-    if (Math.abs(post - (enemy.x + enemy.w / 2)) <= enemy.speed * simDt + 1) {
+    if (Math.abs(post - (enemy.x + enemy.w / 2)) <= spd(enemy) * simDt + 1) {
       enemy.x = post - enemy.w / 2;                     // arrived at post
       enemy.vx = 0;
       enemy.chaseState = 'idle';
@@ -272,7 +282,7 @@ function chargeStep(enemy, player, simDt, level) {
   if (enemy.chargeState === 'charging') {
     enemy.chargeT = Math.max(0, enemy.chargeT - simDt);
     const dir = enemy.chargeDir;
-    let next = enemy.x + dir * CHARGE_SPEED * simDt;
+    let next = enemy.x + dir * CHARGE_SPEED * (enemy.speedMul || 1) * simDt;
     if (enemy.patrol) {                                 // arena bounds win (§34)
       if (next < enemy.patrol.minX) { next = enemy.patrol.minX; }
       else if (next > enemy.patrol.maxX) { next = enemy.patrol.maxX; }
@@ -282,7 +292,7 @@ function chargeStep(enemy, player, simDt, level) {
     const blocked = !stepHasGround(enemy, next, dir, level.platforms)
       || stepHitsWall(enemy, next, dir, level.platforms);
     enemy.x = next;
-    enemy.vx = dir * CHARGE_SPEED;                      // §31 run speed band
+    enemy.vx = dir * CHARGE_SPEED * (enemy.speedMul || 1);   // §49: charge is movement
     if (enemy.chargeT === 0 || atBound || blocked) {
       enemy.chargeState = 'recovery';
       enemy.chargeT = CHARGE_RECOVERY_T;

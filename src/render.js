@@ -101,6 +101,44 @@ import {
   TORCH_LIGHT_RANGE,
   TORCH_GLOW_ALPHA,
 } from './constants.js';
+import { STORY_DURATIONS } from './story.js';
+
+// §67/§68 story presentation helpers: stable per-id phase (§72 — never
+// Math.random) for stone engraving offsets and statue shimmer.
+function storyHash(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) % 2147483647;
+  return h;
+}
+
+// Word-wrap for the fixed-width plates (authoritative text, §67 corpus).
+function wrapLines(ctx, text, maxWidth, maxLines) {
+  const words = String(text).split(' ');
+  const lines = [];
+  let line = '';
+  for (let i = 0; i < words.length; i += 1) {
+    const probe = line ? line + ' ' + words[i] : words[i];
+    if (ctx.measureText(probe).width > maxWidth && line) {
+      lines.push(line);
+      line = words[i];
+      if (lines.length === maxLines) break;
+    } else {
+      line = probe;
+    }
+  }
+  if (lines.length < maxLines && line) lines.push(line);
+  return lines;
+}
+
+// Presentation fade: ramp in over `fin`, out over `fout` before expiry.
+function storyAlpha(now, until, total, fin, fout) {
+  const remain = until - now;
+  if (remain <= 0) return 0;
+  const age = total - remain;
+  const aIn = Math.min(1, age / fin);
+  const aOut = Math.min(1, remain / fout);
+  return Math.max(0, Math.min(aIn, aOut));
+}
 
 // Deterministic starfield: pure authored formula, no randomness (§72).
 const STARS = [];
@@ -2226,6 +2264,220 @@ export function createRenderer(canvas) {
     }
   }
 
+  // ---- §67/§68 story props (Phase 11): inscription stones + NPC statues ----
+  // World-space, dressing-adjacent layer. Stones are readable slabs with a
+  // moonlit engraving; the §68 NPC is a taller hooded statue silhouette
+  // whose face carries a faint Aram-purple resonance. Culling per §42.
+  function drawStoryProps(ctx, level, cam, t, game) {
+    const left = cam.x - 120;
+    const right = cam.x + VIEW_W + 120;
+    const story = game.story;
+    for (let ci = 0; ci < level.chapters.length; ci += 1) {
+      const ch = level.chapters[ci];
+      if (!ch.authored) continue;
+
+      // -- inscription stones -----------------------------------------------
+      const stones = ch.stones || [];
+      for (let si = 0; si < stones.length; si += 1) {
+        const st = stones[si];
+        if (st.x < left || st.x > right) continue;
+        const ph = storyHash(st.id);
+        const active = story && story.inscription && story.inscription.id === st.id;
+        // slab: 40x56 standing stone, slightly wider cap
+        ctx.fillStyle = '#232b3d';
+        ctx.fillRect(st.x - 20, st.y - 56, 40, 56);
+        ctx.fillStyle = '#2c3548';
+        ctx.fillRect(st.x - 23, st.y - 60, 46, 6);            // cap stone
+        ctx.fillStyle = '#4a5878';
+        ctx.fillRect(st.x - 23, st.y - 60, 46, 2);            // moonlit top edge
+        ctx.fillRect(st.x - 20, st.y - 8, 40, 2);             // base seam
+        // engraving: 3 line rows, per-stone deterministic offsets (§72)
+        ctx.fillStyle = 'rgba(168,205,255,0.38)';
+        for (let li = 0; li < 3; li += 1) {
+          const w = 18 + ((ph >> (li * 3)) & 15);
+          ctx.fillRect(st.x - 14 + ((ph >> (li * 2)) & 5), st.y - 46 + li * 12, w, 2);
+        }
+        // active stone breathes a soft cyan halo
+        if (active) {
+          ctx.globalAlpha = 0.10 + 0.05 * Math.sin(t * 2.4 + ph);
+          ctx.fillStyle = '#a8cdff';
+          ctx.fillRect(st.x - 26, st.y - 66, 52, 68);
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // -- §68 NPC statue ----------------------------------------------------
+      const npc = ch.npc;
+      if (npc && npc.x >= left && npc.x <= right) {
+        const done = story && story.npcDone && story.npcDone[npc.id];
+        const sh = storyHash(npc.id);
+        const bob = Math.sin(t * 1.3 + sh) * 1.5;
+        // pedestal + robed hooded silhouette (86 tall)
+        ctx.fillStyle = '#1c2333';
+        ctx.fillRect(npc.x - 19, npc.y - 10, 38, 10);          // pedestal
+        ctx.fillStyle = '#262f45';
+        ctx.fillRect(npc.x - 13, npc.y - 78 + bob * 0.4, 26, 68);   // robe
+        ctx.fillRect(npc.x - 15, npc.y - 58 + bob * 0.4, 30, 8);    // sleeves
+        ctx.fillStyle = '#2e3852';
+        ctx.fillRect(npc.x - 10, npc.y - 86 + bob * 0.4, 20, 14);   // hood
+        ctx.fillStyle = '#161c2b';
+        ctx.fillRect(npc.x - 6, npc.y - 82 + bob * 0.4, 12, 8);     // hood shadow
+        // faint purple face resonance (Aram's kinship, §68)
+        const glow = story && story.npcPrompt && story.npcPrompt.id === npc.id;
+        ctx.fillStyle = glow ? 'rgba(199,125,255,0.75)' : 'rgba(150,110,210,0.35)';
+        ctx.fillRect(npc.x - 4, npc.y - 79 + bob * 0.4, 3, 3);
+        ctx.fillRect(npc.x + 2, npc.y - 79 + bob * 0.4, 3, 3);
+        // done statues dim to a resting grey-lavender
+        if (done) {
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = '#3a4054';
+          ctx.fillRect(npc.x - 13, npc.y - 86 + bob * 0.4, 26, 78);
+          ctx.globalAlpha = 1;
+        }
+        // interaction prompt: [J] glyph bobbing above the hood (§68)
+        if (glow && !done) {
+          const py = npc.y - 104 + Math.sin(t * 3.2) * 3;
+          ctx.fillStyle = 'rgba(10,12,20,0.85)';
+          ctx.fillRect(npc.x - 17, py - 12, 34, 24);
+          ctx.fillStyle = 'rgba(199,125,255,0.6)';
+          ctx.fillRect(npc.x - 17, py - 12, 34, 2);
+          ctx.fillRect(npc.x - 17, py + 10, 34, 2);
+          ctx.fillStyle = '#e6d4ef';
+          ctx.font = 'bold 14px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('J', npc.x, py + 5);
+          ctx.textAlign = 'left';
+        }
+      }
+    }
+  }
+
+  // ---- §67/§68 story plates (Phase 11): screen-space presentation ---------
+  // Flashback: 2 s black-bg / white-text window (a memory covers the world;
+  // the HUD stays readable above it). Cinematic: letterboxed unlock plates.
+  // Inscription / NPC dialogue / quip: bottom plates + a line over the
+  // active character. All non-blocking (§67) — presentation state only.
+  function drawStoryPlates(ctx, game, player, cam) {
+    const story = game.story;
+    if (!story) return;
+    const now = game.gameTime;
+
+    // -- unlock cinematic: letterbox bars + title + text ---------------------
+    if (story.cinematic) {
+      const a = storyAlpha(now, story.cinematic.until, STORY_DURATIONS.cinematic, 0.3, 0.5);
+      if (a > 0) {
+        const barH = Math.round(86 * Math.min(1, a * 1.4));
+        ctx.fillStyle = '#05060a';
+        ctx.fillRect(0, 0, LOGICAL_W, barH);
+        ctx.fillRect(0, LOGICAL_H - barH, LOGICAL_W, barH);
+        ctx.globalAlpha = Math.min(1, a);
+        ctx.fillStyle = '#d8b96a';
+        ctx.font = 'bold 21px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(story.cinematic.title, LOGICAL_W / 2, 296);
+        ctx.fillStyle = '#cfd8e6';
+        ctx.font = '16px sans-serif';
+        const lines = wrapLines(ctx, story.cinematic.text, 720, 3);
+        for (let i = 0; i < lines.length; i += 1) {
+          ctx.fillText(lines[i], LOGICAL_W / 2, 328 + i * 22);
+        }
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // -- inscription plate (~5 s, §67) ----------------------------------------
+    if (story.inscription) {
+      const a = storyAlpha(now, story.inscription.until, STORY_DURATIONS.inscription, 0.35, 0.5);
+      if (a > 0) {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = 'rgba(10,14,24,0.78)';
+        ctx.fillRect((LOGICAL_W - 660) / 2, 540, 660, 56);
+        ctx.fillStyle = 'rgba(168,205,255,0.45)';
+        ctx.fillRect((LOGICAL_W - 660) / 2, 540, 660, 2);
+        ctx.fillRect((LOGICAL_W - 660) / 2, 594, 660, 2);
+        ctx.fillStyle = '#cdd9f0';
+        ctx.font = '15px sans-serif';
+        ctx.textAlign = 'center';
+        const lines = wrapLines(ctx, story.inscription.text, 620, 2);
+        const y0 = 568 - (lines.length - 1) * 9;
+        for (let i = 0; i < lines.length; i += 1) {
+          ctx.fillText(lines[i], LOGICAL_W / 2, y0 + i * 18);
+        }
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // -- §68 NPC dialogue plate (5 s, once per run) ---------------------------
+    if (story.npcDialogue) {
+      const a = storyAlpha(now, story.npcDialogue.until, STORY_DURATIONS.npcDialogue, 0.3, 0.5);
+      if (a > 0) {
+        ctx.globalAlpha = a;
+        ctx.fillStyle = 'rgba(14,16,22,0.82)';
+        ctx.fillRect((LOGICAL_W - 680) / 2, 596, 680, 46);
+        ctx.fillStyle = 'rgba(150,110,210,0.5)';
+        ctx.fillRect((LOGICAL_W - 680) / 2, 596, 680, 2);
+        ctx.fillRect((LOGICAL_W - 680) / 2, 640, 680, 2);
+        ctx.fillStyle = '#b9c2d4';
+        ctx.font = 'italic 15px sans-serif';
+        ctx.textAlign = 'center';
+        const lines = wrapLines(ctx, story.npcDialogue.text, 640, 2);
+        const y0 = 620 - (lines.length - 1) * 9;
+        for (let i = 0; i < lines.length; i += 1) {
+          ctx.fillText(lines[i], LOGICAL_W / 2, y0 + i * 18);
+        }
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // -- §67 switch quip: a brief line above the active character ------------
+    if (story.quip) {
+      const a = storyAlpha(now, story.quip.until, STORY_DURATIONS.quip, 0.2, 0.4);
+      if (a > 0) {
+        const sx = (player.x + player.w / 2 - cam.x) * ZOOM;
+        const sy = (player.y - cam.y) * ZOOM - 16;
+        ctx.globalAlpha = a;
+        ctx.font = 'bold 14px sans-serif';
+        ctx.textAlign = 'center';
+        const w = Math.min(400, ctx.measureText(story.quip.text).width + 24);
+        ctx.fillStyle = 'rgba(8,10,18,0.6)';
+        ctx.fillRect(sx - w / 2, sy - 15, w, 21);
+        ctx.fillStyle = '#e8e2d2';
+        ctx.fillText(story.quip.text, sx, sy);
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // -- flashback: full-screen black + centered white text (TOPMOST — a
+    //    memory covers every other plate; the HUD above stays readable) ----
+    if (story.flashback) {
+      const a = storyAlpha(now, story.flashback.until, STORY_DURATIONS.flashback, 0.22, 0.35);
+      if (a > 0) {
+        ctx.globalAlpha = Math.min(1, a * 1.05);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
+        ctx.globalAlpha = Math.min(1, a);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'italic 17px sans-serif';
+        ctx.textAlign = 'center';
+        const lines = wrapLines(ctx, story.flashback.text, 760, 3);
+        const y0 = LOGICAL_H / 2 - (lines.length - 1) * 11;
+        for (let i = 0; i < lines.length; i += 1) {
+          ctx.fillText(lines[i], LOGICAL_W / 2, y0 + i * 23);
+        }
+        // memory ornament: thin rules above/below the block
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.fillRect(LOGICAL_W / 2 - 130, y0 - 34, 260, 1);
+        ctx.fillRect(LOGICAL_W / 2 - 130, y0 + lines.length * 23 - 12, 260, 1);
+        ctx.textAlign = 'left';
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+
   // ---- enemies (§30/§31/§42) -------------------------------------------------
   function drawEnemies(game, enemies, cam) {
     // §31: dead enemies leave presentation (a cosmetic memorial is optional,
@@ -2410,6 +2662,7 @@ export function createRenderer(canvas) {
     ctx.translate(-cam.x, -cam.y);                     // world space (§53)
     drawPlatforms(level.allPlatforms, cam, game.brokenPlatformIds);
     drawDressing(ctx, level, cam, t);                  // §55 Phase 10 dressing
+    drawStoryProps(ctx, level, cam, t, game);           // §67/§68 stones + NPC
     drawGates(ctx, level.gates, cam, t);               // §50 gates
     drawRings(ctx, game.rings, cam);                   // §24 impact rings
     drawCollectibles(ctx, collectibles, cam, t);       // §48/§58 (Phase 9)
@@ -2423,6 +2676,7 @@ export function createRenderer(canvas) {
     drawDamageFlash(ctx, game);                        // §57 Phase 10 red flash
     ctx.restore();                                     // end §54 shake frame
     drawFog();
+    drawStoryPlates(ctx, game, player, cam);           // §67/§68 story presentation
     drawTutorial(ctx, game);                           // §20.2 non-blocking hint
     drawVignette();
     drawHUD(ctx, game, player, level);                 // §65 HUD (Phase 9)

@@ -41,6 +41,7 @@ import {
   SHAKE_LARGE_T,
   DAMAGE_FLASH_T,
   CHARACTER_COLORS,
+  ADAPTIVE_SPEED_MULT,
 } from '../constants.js';
 import { aiStep, computeFlanks } from '../ai.js';
 import { spawnBurst, spawnHit, spawnDustCloud, addRing, triggerShake } from './particle.js';
@@ -106,12 +107,29 @@ export function createEnemies(level, defeatedEnemyIds) {
   return enemies;
 }
 
+// §45 CHECKPOINT RESPAWN — the enemy half. Reset scope is the RESPAWN
+// chapter only: that chapter's live enemies are re-created from the
+// authored data (defeatedEnemyIds filter — defeated enemies stay omitted,
+// §28), with every transient AI field re-initialized by the factory. Other
+// chapters' enemies are left untouched. Mutates `enemies` IN PLACE so the
+// main module's array identity (metrics/renderer reference) survives.
+export function resetChapterEnemies(enemies, level, chapter, defeatedEnemyIds) {
+  for (let i = enemies.length - 1; i >= 0; i -= 1) {
+    const ch = level.chapterAt(enemies[i].x + enemies[i].w / 2);
+    if (ch === chapter) enemies.splice(i, 1);
+  }
+  if (!chapter.authored) return;
+  const fresh = createEnemies({ chapters: [chapter] }, defeatedEnemyIds);
+  for (let i = 0; i < fresh.length; i += 1) enemies.push(fresh[i]);
+}
+
 // Shared enemy factory — regular + mini-boss fields in one place.
 function makeEnemy(id, type, x, y, spec, chapter) {
   const hp = spec.hp != null ? spec.hp : type.hp;
   return {
     id,
     type: type.key,
+    act: chapter.act,                 // §49: adaptive difficulty is per-act
     chases: !!type.chases,
     radial: !!type.radial,
     miniBoss: !!spec.miniBoss,
@@ -122,6 +140,7 @@ function makeEnemy(id, type, x, y, spec, chapter) {
     w: Math.round(type.w * (spec.scale || 1)),
     h: Math.round(type.h * (spec.scale || 1)),
     speed: type.speed,
+    speedMul: 1,                     // §49: maintained per step (adaptive)
     hp,
     maxHp: hp,
     contactDamage: type.contactDamage,
@@ -388,9 +407,13 @@ export function updateEnemies(game, enemies, player, dt, level) {
   // §34 group flanking (advisory): assign this step's flank sides BEFORE the
   // per-enemy AI runs (deterministic by stable authored IDs).
   computeFlanks(enemies, player);
+  // §49 adaptive difficulty: per-act latched activation — ONLY the movement
+  // speed multiplier is scaled (see ai.js spd()); timers stay authored.
+  const adaptive = game.adaptiveActs;
   for (let i = 0; i < enemies.length; i += 1) {
     const e = enemies[i];
     if (e.dead) continue;                           // §31: AI inactive
+    e.speedMul = adaptive && adaptive.has(e.act) ? ADAPTIVE_SPEED_MULT : 1;
     if (e.hurtT > 0) e.hurtT = Math.max(0, e.hurtT - simDt);
     if (e.staggerT > 0) e.staggerT = Math.max(0, e.staggerT - simDt);
     e.walkTime += simDt;
