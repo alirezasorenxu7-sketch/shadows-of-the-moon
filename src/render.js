@@ -819,7 +819,8 @@ function drawPatroller(ctx, e) {
   const bob = walking ? Math.abs(walk) * 1.5 : 0;
   const shake = e.hurtT > 0 ? Math.sin(e.hurtT * 80) * 2 : 0;   // §31 ~2px shake
   ctx.save();
-  ctx.translate(e.x + e.w / 2 + shake, e.y + e.h);
+  // §34 telegraph backward step: rendered as a 4px backward lean offset.
+  ctx.translate(e.x + e.w / 2 + shake - (e.attackWindup > 0 ? flip * 4 : 0), e.y + e.h);
   ctx.scale(flip, 1);
   const dark = e.staggerT > 0 ? 1 : 0;   // staggered: one tone darker
 
@@ -872,6 +873,280 @@ function drawPatroller(ctx, e) {
     ctx.fillRect(-22, -66 + bob, 44, 66);
   }
   ctx.restore();
+}
+
+// §29 CHASER — the lean runner (42x62). Narrower cube stack, forward torso
+// lean (stronger while chasing), and a long scarf that streams back with
+// speed. Same §30 construction language as the Patroller.
+function drawChaser(ctx, e) {
+  const flip = e.facing === 'left' ? -1 : 1;
+  const s = e.scale || 1;
+  const running = e.state === 'run';
+  const walking = e.state === 'walk' || running;
+  const cycle = e.state === 'run' ? 16 : 13;          // faster cycle band
+  const walk = walking ? Math.sin(e.walkTime * cycle) : 0;
+  const stride = running ? 4 : 3;
+  const bob = walking ? Math.abs(walk) * 1.8 : 0;
+  const shake = e.hurtT > 0 ? Math.sin(e.hurtT * 80) * 2 : 0;
+  const chasing = e.chaseState === 'chase';
+  const lean = chasing ? 6 : 3;                       // forward torso lean
+  ctx.save();
+  // §34 telegraph backward step: rendered as a 4px backward lean offset.
+  ctx.translate(e.x + e.w / 2 + shake - (e.attackWindup > 0 ? flip * 4 : 0), e.y + e.h);
+  ctx.scale(flip * s, s);
+  const dark = e.staggerT > 0 ? 1 : 0;
+
+  // legs: long strides
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(-12 + walk * stride, -13, 9, 13);
+  ctx.fillRect(3 - walk * stride, -13, 9, 13);
+
+  // torso: 4 rows x 3 lean cubes, leaning forward with height
+  for (let row = 0; row < 4; row += 1) {
+    const y = -24 - row * 9 + bob;
+    const lx = (row / 3) * lean;
+    for (let col = 0; col < 3; col += 1) {
+      ctx.fillStyle = ENEMY_ARMOR[(row * 3 + col + dark) % ENEMY_ARMOR.length];
+      const cw = 10 + ((row * 5 + col * 3) % 3);
+      const jx = ((row * 7 + col * 2) % 5) - 2;
+      ctx.fillRect(-15 + col * 10 + jx + lx, y, cw, 9);
+    }
+  }
+  // small pauldrons + close helm
+  ctx.fillStyle = ENEMY_ARMOR[(3 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-19, -51 + bob, 8, 8);
+  ctx.fillRect(11, -51 + bob, 8, 8);
+  ctx.fillStyle = ENEMY_ARMOR[(2 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-7, -62 + bob, 14, 12);
+  ctx.fillRect(-4, -65 + bob, 8, 3);
+
+  // long scarf STREAMING back (§30) — longer + straighter at chase speed
+  const stream = chasing || running ? 26 : 14;
+  const sway = Math.sin(e.walkTime * cycle * 0.5) * 2;
+  ctx.fillStyle = ENEMY_CLOTH[0];
+  ctx.fillRect(-24 - stream * 0.4, -46 + bob, 10, 26);
+  ctx.fillStyle = ENEMY_CLOTH[1];
+  ctx.fillRect(-30 - stream + Math.abs(walk) * 2, -40 + bob + sway, stream, 9);
+  ctx.fillStyle = ENEMY_CLOTH[2];
+  ctx.fillRect(-34 - stream + Math.abs(walk) * 3, -33 + bob + sway, stream * 0.6, 6);
+
+  // short dark blade (§30)
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(13, -26 + bob, 3, 13);
+
+  // two glowing white eyes — the ONLY shadowBlur use (§30, §78)
+  ctx.save();
+  ctx.shadowColor = ENEMY_EYE;
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = ENEMY_EYE;
+  ctx.fillRect(-3 + lean * 0.4, -58 + bob, 3, 3);
+  ctx.fillRect(3 + lean * 0.4, -58 + bob, 3, 3);
+  ctx.restore();
+
+  if (e.hurtT > 0) {
+    ctx.fillStyle = 'rgba(240, 240, 240, 0.30)';
+    ctx.fillRect(-20, -66 + bob, 40, 66);
+  }
+  ctx.restore();
+}
+
+// §29 ARMORED — the heavy tank (44x65). Thicker plating (5 rows x 4 wide),
+// a faint red chest arrow (the §29 tell), extra chest plate, big pauldrons.
+function drawArmored(ctx, e) {
+  const flip = e.facing === 'left' ? -1 : 1;
+  const s = e.scale || 1;
+  const walking = e.state === 'walk' || e.state === 'run';
+  const walk = walking ? Math.sin(e.walkTime * 9) : 0;
+  const bob = walking ? Math.abs(walk) * 1.2 : 0;
+  const shake = e.hurtT > 0 ? Math.sin(e.hurtT * 80) * 2 : 0;
+  ctx.save();
+  // §34 telegraph backward step: rendered as a 4px backward lean offset.
+  ctx.translate(e.x + e.w / 2 + shake - (e.attackWindup > 0 ? flip * 4 : 0), e.y + e.h);
+  ctx.scale(flip * s, s);
+  const dark = e.staggerT > 0 ? 1 : 0;
+
+  // thick legs
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(-15 + walk * 2, -14, 12, 14);
+  ctx.fillRect(3 - walk * 2, -14, 12, 14);
+
+  // torso: 5 rows x 4 stacked armor cubes (20 — §30's cap)
+  for (let row = 0; row < 5; row += 1) {
+    const y = -26 - row * 9 + bob;
+    for (let col = 0; col < 4; col += 1) {
+      ctx.fillStyle = ENEMY_ARMOR[(row * 4 + col + dark) % ENEMY_ARMOR.length];
+      const cw = 11 + ((row * 5 + col * 3) % 3);
+      const jx = ((row * 7 + col * 2) % 5) - 2;
+      ctx.fillRect(-20 + col * 10 + jx, y, cw, 9);
+    }
+  }
+  // extra chest plate + the faint red chest arrow (§29 tell)
+  ctx.fillStyle = ENEMY_ARMOR[(3 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-16, -44 + bob, 32, 6);
+  ctx.globalAlpha = 0.55;
+  ctx.fillStyle = ENEMY_CLOTH[2];
+  ctx.fillRect(-7, -42 + bob, 5, 3);                 // chevron: left stroke
+  ctx.fillRect(2, -42 + bob, 5, 3);                  // chevron: right stroke
+  ctx.fillRect(-3, -39 + bob, 6, 3);                 // chevron: point
+  ctx.globalAlpha = 1;
+
+  // big pauldrons + visored helm
+  ctx.fillStyle = ENEMY_ARMOR[(3 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-25, -58 + bob, 11, 10);
+  ctx.fillRect(14, -58 + bob, 11, 10);
+  ctx.fillStyle = ENEMY_ARMOR[(2 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-8, -69 + bob, 17, 13);
+  ctx.fillRect(-5, -72 + bob, 11, 3);
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(-6, -63 + bob, 13, 2);                // visor slit
+
+  // short cloak (§30)
+  const sway = Math.sin(e.walkTime * 9 * 0.5) * 2;
+  ctx.fillStyle = ENEMY_CLOTH[0];
+  ctx.fillRect(-28 - Math.abs(walk) * 2 + sway, -56 + bob, 11, 24);
+
+  // short dark blade (§30)
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(17, -30 + bob, 3, 15);
+
+  // two glowing white eyes — the ONLY shadowBlur use (§30, §78)
+  ctx.save();
+  ctx.shadowColor = ENEMY_EYE;
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = ENEMY_EYE;
+  ctx.fillRect(-4, -65 + bob, 3, 3);
+  ctx.fillRect(3, -65 + bob, 3, 3);
+  ctx.restore();
+
+  if (e.hurtT > 0) {
+    ctx.fillStyle = 'rgba(240, 240, 240, 0.30)';
+    ctx.fillRect(-24, -74 + bob, 48, 74);
+  }
+  ctx.restore();
+}
+
+// §29 BRUTE — the siege mass (52x78). 5 rows x 4 wide of big cubes, huge
+// pauldrons, horned helm, side fists, wide short cloak. The §33 radial
+// wind-up plants the brute (crouch state) with a red pulse.
+function drawBrute(ctx, e, gameTime) {
+  const flip = e.facing === 'left' ? -1 : 1;
+  const s = e.scale || 1;
+  const walking = e.state === 'walk';
+  const walk = walking ? Math.sin(e.walkTime * 6) : 0;
+  const bob = walking ? Math.abs(walk) * 1.2 : 0;
+  const crouch = e.state === 'crouch' ? 6 : 0;       // planted wind-up crouch
+  const shake = e.hurtT > 0 ? Math.sin(e.hurtT * 80) * 2 : 0;
+  ctx.save();
+  // §34 telegraph backward step: rendered as a 4px backward lean offset.
+  ctx.translate(e.x + e.w / 2 + shake - (e.attackWindup > 0 ? flip * 4 : 0), e.y + e.h);
+  ctx.scale(flip * s, s);
+  const dark = e.staggerT > 0 ? 1 : 0;
+
+  // massive legs
+  ctx.fillStyle = ENEMY_ARMOR[0];
+  ctx.fillRect(-18 + walk * 2, -16, 14, 16);
+  ctx.fillRect(4 - walk * 2, -16, 14, 16);
+
+  // torso: 5 rows x 4 big cubes
+  for (let row = 0; row < 5; row += 1) {
+    const y = -30 - row * 10 + bob + crouch * 0.4;
+    for (let col = 0; col < 4; col += 1) {
+      ctx.fillStyle = ENEMY_ARMOR[(row * 4 + col + dark) % ENEMY_ARMOR.length];
+      const cw = 13 + ((row * 5 + col * 3) % 3);
+      const jx = ((row * 7 + col * 2) % 5) - 2;
+      ctx.fillRect(-23 + col * 12 + jx, y, cw, 10);
+    }
+  }
+  // huge pauldrons + horned helm
+  ctx.fillStyle = ENEMY_ARMOR[(3 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-30, -62 + bob + crouch * 0.5, 14, 12);
+  ctx.fillRect(16, -62 + bob + crouch * 0.5, 14, 12);
+  ctx.fillStyle = ENEMY_ARMOR[(2 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-10, -74 + bob + crouch * 0.6, 20, 14);
+  ctx.fillRect(-6, -78 + bob + crouch * 0.6, 12, 4);
+  ctx.fillRect(-11, -82 + bob + crouch * 0.6, 5, 9);  // left horn
+  ctx.fillRect(6, -82 + bob + crouch * 0.6, 5, 9);    // right horn
+
+  // side fists (planted heavy arms)
+  ctx.fillStyle = ENEMY_ARMOR[(1 + dark) % ENEMY_ARMOR.length];
+  ctx.fillRect(-28, -34 + bob + crouch, 9, 11);
+  ctx.fillRect(19, -34 + bob + crouch, 9, 11);
+
+  // wide short cloak (§30)
+  const sway = Math.sin(e.walkTime * 6 * 0.5) * 2;
+  ctx.fillStyle = ENEMY_CLOTH[0];
+  ctx.fillRect(-33 - Math.abs(walk) * 2 + sway, -60 + bob, 12, 26);
+  ctx.fillStyle = ENEMY_CLOTH[1];
+  ctx.fillRect(-36 - Math.abs(walk) * 3 + sway, -50 + bob, 9, 18);
+
+  // two big glowing eyes — the ONLY shadowBlur use (§30, §78)
+  ctx.save();
+  ctx.shadowColor = ENEMY_EYE;
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = ENEMY_EYE;
+  ctx.fillRect(-6, -69 + bob + crouch * 0.6, 4, 4);
+  ctx.fillRect(3, -69 + bob + crouch * 0.6, 4, 4);
+  ctx.restore();
+
+  // §33 wind-up RED PULSE — the body glows in an oscillating red wash.
+  if (e.radialWindup > 0) {
+    const k = 0.18 + 0.16 * (0.5 + 0.5 * Math.sin(gameTime * 26));
+    ctx.fillStyle = 'rgba(192,32,32,' + k.toFixed(3) + ')';
+    ctx.fillRect(-30, -80 + bob + crouch * 0.6, 60, 80);
+  }
+  if (e.hurtT > 0) {
+    ctx.fillStyle = 'rgba(240, 240, 240, 0.30)';
+    ctx.fillRect(-28, -84 + bob, 56, 84);
+  }
+  ctx.restore();
+}
+
+// Shared enemy overlays: §29 HP bar (Armored + every mini-boss), the §34
+// alert "!", the §33 wind-up danger ring, and the §34 telegraph tint for
+// non-Brute types. Drawn in WORLD space after the body.
+function drawEnemyOverlays(ctx, e, gameTime) {
+  const cx = e.x + e.w / 2;
+  // §29 HP bar (Armored) — and every mini-boss shows its boss bar.
+  if (e.type === 'armored' || e.miniBoss) {
+    const bw = e.miniBoss ? Math.max(56, e.w) : 30;
+    const bh = e.miniBoss ? 6 : 4;
+    const bx = cx - bw / 2;
+    const by = e.y - (e.miniBoss ? 16 : 10);
+    ctx.fillStyle = '#0a0d14';
+    ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+    ctx.fillStyle = '#2a2f3a';
+    ctx.fillRect(bx, by, bw, bh);
+    const frac = Math.max(0, e.hp / e.maxHp);
+    ctx.fillStyle = frac > 0.5 ? '#c02020' : '#e63946';
+    ctx.fillRect(bx, by, bw * frac, bh);
+  }
+  // §34 alert "!" — pops with a small deterministic bounce.
+  if (e.alertT > 0 || e.chargeState === 'windup') {
+    const bounce = Math.abs(Math.sin(gameTime * 10)) * 3;
+    const ay = e.y - (e.miniBoss ? 26 : 16) - bounce;
+    ctx.fillStyle = '#0a0d14';
+    ctx.fillRect(cx - 6, ay - 14, 12, 18);
+    ctx.fillStyle = ENEMY_EYE;
+    ctx.font = 'bold 17px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('!', cx, ay);
+  }
+  // §33 wind-up danger ring at the impact scale around the brute.
+  if (e.radialWindup > 0) {
+    const k = e.radialWindup / 0.5;                  // 1 -> 0 countdown
+    ctx.strokeStyle = 'rgba(192,32,32,' + (0.25 + 0.45 * (1 - k)).toFixed(3) + ')';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(cx, e.y + e.h / 2, 100 * (0.55 + 0.45 * (1 - k)), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+  }
+  // §34 non-Brute telegraph tint (visual telegraph ONLY, §32).
+  if (e.type !== 'brute' && (e.attackWindup > 0)) {
+    ctx.fillStyle = 'rgba(160,24,24,0.22)';
+    ctx.fillRect(e.x, e.y, e.w, e.h);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1321,15 +1596,20 @@ export function createRenderer(canvas) {
   }
 
   // ---- enemies (§30/§31/§42) -------------------------------------------------
-  function drawEnemies(enemies, cam) {
+  function drawEnemies(game, enemies, cam) {
     // §31: dead enemies leave presentation (a cosmetic memorial is optional,
     // §28 — not authored). Render-only culling (§42/§78) against the zoomed
-    // view; gameplay entities are NOT removed, merely skipped.
+    // view; gameplay entities are NOT removed, merely skipped. Mini-boss
+    // art scales by the authored §50 multiplier (hitbox and art agree).
     for (let i = 0; i < enemies.length; i += 1) {
       const e = enemies[i];
       if (e.dead) continue;
-      if (e.x + e.w < cam.x - 20 || e.x > cam.x + VIEW_W + 20) continue;
+      if (e.x + e.w < cam.x - 60 || e.x > cam.x + VIEW_W + 60) continue;
       if (e.type === 'patroller') drawPatroller(ctx, e);
+      else if (e.type === 'chaser') drawChaser(ctx, e);
+      else if (e.type === 'armored') drawArmored(ctx, e);
+      else if (e.type === 'brute') drawBrute(ctx, e, game.gameTime);
+      drawEnemyOverlays(ctx, e, game.gameTime);
     }
   }
 
@@ -1448,7 +1728,7 @@ export function createRenderer(canvas) {
     drawPlatforms(level.allPlatforms, cam, game.brokenPlatformIds);
     drawGates(ctx, level.gates, cam, game.gameTime);   // §50 gates
     drawRings(ctx, game.rings, cam);                   // §24 impact rings
-    drawEnemies(enemies || [], cam);
+    drawEnemies(game, enemies || [], cam);
     drawPlayer(game, player, level);
     drawProjectiles(ctx, game.projectiles, cam);       // §21 knives + magic
     drawParticles(ctx, game.particles, cam);           // §57 feedback chips
