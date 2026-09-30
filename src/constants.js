@@ -232,6 +232,10 @@ export const INVULN_T = 1.0;                // seconds after real HP loss
 export const COMBO_WINDOW = 5.0;            // kill streak duration, seconds
 export const COMBO_MIN_STREAK = 3;          // 3rd kill ACTIVATES; x2 from 4th
 
+// ---- adaptive difficulty (SPEC §49 — Phase 11) ------------------------------
+export const ADAPTIVE_DEATH_THRESHOLD = 3;  // consecutive same-act deaths
+export const ADAPTIVE_SPEED_MULT = 0.8;     // enemy MOVEMENT speed multiplier
+
 // ---- squash & stretch (SPEC §57 — locked factors, Phase 3) -----------------
 export const SQUASH_DURATION = 0.1;   // seconds to ease back to neutral ("~0.1s")
 export const SQUASH_JUMP_Y = 1.15;    // jump takeoff: Y * 1.15

@@ -44,6 +44,7 @@ import {
   GATE_OPEN_RANGE,
   LEVEL_COMPLETION_SCORE,
   SHAKE_MODES,
+  ADAPTIVE_DEATH_THRESHOLD,
 } from './constants.js';
 import { createInput } from './input.js';
 import './physics.js';
@@ -51,13 +52,16 @@ import './ai.js';
 import { LEVEL_DATA, buildLevel } from './level.js';
 import { createRenderer } from './render.js';
 import { createLoop } from './loop.js';
-import { createPlayer, updatePlayer, switchCharacter, playerSnapshot, resetPlayer } from './entities/player.js';
-import { createEnemies, updateEnemies, damageEnemy, enemiesSnapshot } from './entities/enemy.js';
+import { createPlayer, updatePlayer, switchCharacter, playerSnapshot, resetPlayer, respawnPlayer } from './entities/player.js';
+import { createEnemies, updateEnemies, damageEnemy, enemiesSnapshot, resetChapterEnemies } from './entities/enemy.js';
 import { updateProjectiles, projectilesSnapshot } from './entities/projectile.js';
 import { updateParticles, spawnBurst, particlesSnapshot } from './entities/particle.js';
 import { updateAmbient, resetAmbient } from './ambient.js';
 import { createCollectibles, updateCollectibles, collectiblesSnapshot } from './entities/coin.js';
 import { readSave, writeSave, computeRank, seedUnlockedCharacters } from './save.js';
+import {
+  createStoryState, updateStory, showSwitchQuip, showUnlockCinematic,
+} from './story.js';
 
 const canvas = document.getElementById('game');
 
@@ -73,8 +77,17 @@ const game = {
   slowMoT: 0,              // §25.1 remaining slow-motion seconds (player domain)
   paused: false,
   pauseReasons: new Set(),
-  activeCheckpoint: null,   // §44 — activation/respawn arrive with Phase 11
+  activeCheckpoint: null,   // §44/§45 (Phase 11): {id, chapterId, x, y}
   lastDeath: null,          // set on the first death of the run (§43)
+  // ---- §49 adaptive difficulty (Phase 11) ----
+  // actDeathStreak counts CONSECUTIVE deaths in the CURRENT act (reset on
+  // act change); adaptiveActs is the per-act LATCH — once an act hits the
+  // threshold its enemies move at 0.8x for the remainder of the run.
+  actDeathStreak: 0,
+  adaptiveActs: new Set(),
+  respawnCount: 0,          // §74 instrumentation: §45 respawns this run
+  // ---- §67/§68 environmental storytelling (Phase 11) ----
+  story: createStoryState(),
   camera: { x: 0, y: 0 },   // view center-top anchor, world px (§53, Phase 4)
   // ---- Phase 6 run-state authorities ----
   defeatedEnemyIds: new Set(),  // §28: kill score uniqueness; reset only on new run
@@ -205,6 +218,7 @@ function unlockCharacter(key) {
   spawnBurst(game, player.x + player.w / 2, player.y + player.h / 2,
              CHARACTER_COLORS[key], 16);          // §15 unlock burst
   showTutorial(key);                             // §20.2 non-blocking hint
+  showUnlockCinematic(game, key);                // §67 unlock story event
 }
 function checkUnlocks() {
   const here = CHAPTER_INDEX.get(game.currentChapter);
@@ -214,6 +228,93 @@ function checkUnlocks() {
     const at = CHAPTER_INDEX.get(UNLOCK_ORDER[i][1]);
     if (at != null && here >= at) unlockCharacter(key);
   }
+}
+
+// §44 CHECKPOINT ACTIVATION (Phase 11). "Newest checkpoint is active
+// respawn": every activation — chapter start (auto, on ANY chapter entry)
+// or a crossed mid-chapter rectangle — replaces the active respawn. The
+// record carries its chapter so §45's reset scope is exact.
+function activateCheckpoint(chapter, cp) {
+  game.activeCheckpoint = {
+    id: cp.id,
+    chapterId: chapter.id,
+    x: cp.respawn.x,
+    y: cp.respawn.y,
+  };
+}
+
+// §44 mid-chapter checkpoints: crossing the authored trigger rectangle
+// activates (any direction; run-local, never persisted — §63 no-write).
+function checkMidCheckpoints(chapter) {
+  const mids = chapter.midCheckpoints;
+  if (!mids || !mids.length) return;
+  for (let i = 0; i < mids.length; i += 1) {
+    const t = mids[i].trigger;
+    const overlap = player.x < t.x + t.w && player.x + player.w > t.x
+      && player.y < t.y + t.h && player.y + player.h > t.y;
+    if (overlap) {
+      if (!game.activeCheckpoint || game.activeCheckpoint.id !== mids[i].id) {
+        activateCheckpoint(chapter, mids[i]);
+        spawnBurst(game, t.x + t.w / 2, 240, '#cfd8ff', 12);   // soft beacon
+      }
+    }
+  }
+}
+
+// §45 CHECKPOINT RESPAWN — the world/system half (player half: player.js
+// respawnPlayer). Reset scope = the RESPAWN chapter ONLY: its live enemies
+// re-create from authored data (defeated stay omitted, §28), its broken
+// breakables restore, its gates re-form (chapter-local transient state),
+// while every other chapter's world state is untouched. Projectiles,
+// particles, and rings clear (transient). Run progress (score, kills,
+// coins, collections, fragments, combo, completed chapters) is PRESERVED.
+// No localStorage write, no screen change (§45 Do-NOT list).
+function respawnAtCheckpoint() {
+  const cp = game.activeCheckpoint;
+  const chapter = level.chapters[CHAPTER_INDEX.get(cp.chapterId)] || level.chapters[0];
+
+  // §49: this death counts toward the CURRENT act's consecutive streak,
+  // and the latch activates adaptive movement for that act at the threshold.
+  game.actDeathStreak += 1;
+  if (game.actDeathStreak >= ADAPTIVE_DEATH_THRESHOLD) {
+    game.adaptiveActs.add(game.currentAct);
+  }
+
+  game.respawnCount += 1;
+  respawnPlayer(game, player, cp.x, cp.y);
+
+  // §45 reset list: the respawn chapter's transient combat/world state.
+  resetChapterEnemies(enemies, level, chapter, game.defeatedEnemyIds);
+  game.projectiles.length = 0;
+  game.particles.length = 0;
+  game.rings.length = 0;
+  let worldDirty = false;
+  // Breakables in the respawn chapter restore (§45 Reset: breakables).
+  for (let i = 0; i < chapter.platforms.length; i += 1) {
+    const p = chapter.platforms[i];
+    if (p.breakable && p.id && game.brokenPlatformIds.delete(p.id)) worldDirty = true;
+  }
+  // Gates in the respawn chapter re-form (chapter-local transient state:
+  // dispelled barriers re-activate, opened time doors re-close — both are
+  // optional-loot routes, never required, so no soft-lock is possible).
+  for (let i = 0; i < level.gates.length; i += 1) {
+    const g = level.gates[i];
+    if (level.chapterAt(g.x + g.w / 2) === chapter
+        && g.state !== (g.kind === 'magicBarrier' ? 'active' : 'closed')) {
+      g.state = g.kind === 'magicBarrier' ? 'active' : 'closed';
+      worldDirty = true;
+    }
+  }
+  if (worldDirty) level.rebuildSolids(game.brokenPlatformIds);
+
+  // §45: temporary effects end with the fresh standing state (slow-motion
+  // is a global time-domain effect — it never survives a respawn).
+  game.slowMoActive = false;
+  game.slowMoT = 0;
+  game.damageFlashT = 0;
+
+  snapCamera();                        // §53: no easing across the world
+  updateSelectorUI(true);
 }
 
 // §63 auto-save triggers 1 + 3 (entering a new chapter / completing the
@@ -277,6 +378,10 @@ function startRun() {
   game.comboTimer = 0;
   game.activeCheckpoint = null;
   game.lastDeath = null;
+  game.actDeathStreak = 0;             // §49: adaptive resets on a new run
+  game.adaptiveActs = new Set();
+  game.respawnCount = 0;
+  game.story = createStoryState();     // §67: flashbacks/NPCs re-arm per run
   game.lastRank = null;
   game.runCompletedChapters = [];      // §63: progress is run-scoped
   game.runFurthestChapterId = '1-1';
@@ -312,6 +417,9 @@ function startRun() {
     respawnX: startChapter.checkpoint.respawn.x,
     respawnY: startChapter.checkpoint.respawn.y,
   };
+  // §44: entering 1-1 auto-activates its chapter-start checkpoint — a
+  // checkpoint is live from the first step of every run.
+  activateCheckpoint(startChapter, startChapter.checkpoint);
   snapCamera();                        // §53: no easing across the world
   showTutorial('sara');                // §20.2: game-start hints
   writeSave(game, 'chapter');          // §63 trigger 1: the run enters 1-1
@@ -427,16 +535,28 @@ const loop = createLoop({
     // enemy domain consumes dt * slowMotionFactor inside updateEnemies
     // (§10/§11 — applied exactly once there).
     const events = input.drainEvents();
+    // §67/§68 STORY STEP runs BEFORE the player step: while an NPC prompt
+    // is up (Aram within 60 px), the attack edge is consumed as the NPC
+    // interaction INSTEAD of an attack — the player never sees that edge.
+    if (game.screen === 'playing') updateStory(game, player, level, events, dt);
     // §20 character switching resolves BEFORE the step: keys 1/2/3 and the
     // touch selectors emit `select` edges; switchCharacter enforces the
-    // unlock gate, blocked-while rules, and the HP-ratio formula.
+    // unlock gate, blocked-while rules, and the HP-ratio formula. Every
+    // successful switch shows its authored quip (§67 — deterministic
+    // selection, never randomized).
     for (let i = 0; i < events.length; i += 1) {
-      if (events[i].type === 'select') switchCharacter(game, player, events[i].select);
+      if (events[i].type === 'select'
+          && switchCharacter(game, player, events[i].select)) {
+        showSwitchQuip(game, player);
+      }
     }
     updatePlayer(game, player, input.heldState(), events, dt, level, enemies);
-    // §43 death → §65 death screen (final flow; respawn is Phase 11).
+    // §43 death → §45 checkpoint respawn when a checkpoint is active (the
+    // NORM — chapter entry auto-activates one, §44); the FINAL death flow
+    // (§65 screen + §63 bank) is the no-active-checkpoint branch (§79.12).
     if (player.dead) {
-      if (game.screen === 'playing') gameOver();
+      if (game.activeCheckpoint) respawnAtCheckpoint();
+      else if (game.screen === 'playing') gameOver();
       return;
     }
     updateEnemies(game, enemies, player, dt, level);   // §27–§35 (Phase 6/8)
@@ -449,15 +569,21 @@ const loop = createLoop({
     if (game.screen === 'playing') updateAmbient(game, player, dt);
 
     // Chapter/act tracking (amended §46): currentChapter derives from the
-    // player's X within the authored chapter bounds. Forward transitions
-    // complete the passed chapters and fire the §63 chapter-entry save
-    // (trigger 1+3 — one complete write).
+    // player's X within the authored chapter bounds. ANY chapter change
+    // (forward or backward) auto-activates the new chapter's START
+    // checkpoint (§44); forward transitions additionally complete the
+    // passed chapters and fire the §63 chapter-entry save (trigger 1+3 —
+    // one complete write). §49: a different act entered resets the
+    // consecutive-death streak.
     const chapter = level.chapterAt(player.x);
     if (chapter.id !== game.currentChapter) {
       handleChapterTransition(game.currentChapter, chapter);
+      activateCheckpoint(chapter, chapter.checkpoint);   // §44 auto, any direction
+      if (chapter.act !== game.currentAct) game.actDeathStreak = 0;   // §49
       game.currentChapter = chapter.id;
       game.currentAct = chapter.act;
     }
+    checkMidCheckpoints(chapter);      // §44: crossed mid-chapter rects
     checkUnlocks();
     checkTimeDoors();
 
@@ -709,6 +835,21 @@ function pushMetrics(frameInfo) {
   M.currentAct = game.currentAct;
   M.activeCheckpoint = game.activeCheckpoint;
   M.lastDeath = game.lastDeath;
+  M.respawnCount = game.respawnCount;                       // §45
+  M.actDeathStreak = game.actDeathStreak;                   // §49
+  M.adaptiveActs = Array.from(game.adaptiveActs);           // §49 latch
+  // §67/§68 story instrumentation (§74): active presentation facts only.
+  const st = game.story;
+  M.story = {
+    inscription: st.inscription ? st.inscription.text : null,
+    flashback: st.flashback ? st.flashback.text : null,
+    npcPrompt: st.npcPrompt ? st.npcPrompt.id : null,
+    npcDialogue: st.npcDialogue ? st.npcDialogue.text : null,
+    cinematic: st.cinematic ? st.cinematic.title : null,
+    quip: st.quip ? st.quip.text : null,
+    npcInteracted: Object.keys(st.npcDone),
+    beatsSeen: Object.keys(st.pouriaBeats),
+  };
   M.renderTimestamps.push(frameInfo.now);
   if (M.renderTimestamps.length > 240) M.renderTimestamps.shift();
 }
@@ -764,6 +905,10 @@ if (window.__SOM_TEST__ === true) {
     currentAct: null,
     activeCheckpoint: null,
     lastDeath: null,
+    respawnCount: 0,
+    actDeathStreak: 0,
+    adaptiveActs: [],
+    story: null,
     renderTimestamps: [],
   };
   // §73 test-mode-only harness facilities: deterministic position control
@@ -804,6 +949,15 @@ if (window.__SOM_TEST__ === true) {
     // world, exactly like forceUnlock's Aram. Test mode only.
     forceVictory() {
       return completeLevel();
+    },
+    // §73 harness facility for §79.12/§79.15: clear the active checkpoint so
+    // the FINAL death flow (game-over screen + §63 bank) is reachable — the
+    // tests' own "without an active checkpoint" precondition. In the live
+    // game a checkpoint is always active (chapter entry auto-activates one,
+    // §44). Test mode only.
+    clearCheckpoint() {
+      game.activeCheckpoint = null;
+      return true;
     },
   };
 }

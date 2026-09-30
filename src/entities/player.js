@@ -54,6 +54,7 @@ import {
   ATTACK_ANIM_T,
   SPECIAL_ANIM_T,
   SWITCH_INVULN_FLOOR,
+  INVULN_T,
   SWITCH_COMBO_WINDOW,
   COMBO_SLAM_MULT,
   COMBO_SLOWMO_MULT,
@@ -219,6 +220,53 @@ function die(game, player, reason) {
 // switching formula is already exact when it lands.
 function effectiveMaxHp(game, key) {
   return ROSTER[key].maxHp + (game.heartCount || 0);
+}
+
+// §45 CHECKPOINT RESPAWN — the player half. The CHARACTER is preserved
+// (respawn is not a character reset); HP restores to the effective max
+// (heart containers included, §19); a valid standing state is re-created at
+// the checkpoint's respawn point (authored top-left for the 62px roster).
+// Temporary movement states end (fresh entity); per-character cooldowns
+// keep their independent §11.1 clocks (NOT reset — they are authoritative).
+// The §22 standard invulnerability window covers the re-entry: respawn
+// points are authored on patrolled stretches (e.g. 1-2's mid checkpoint
+// sits inside an alive patroller's bounds), so the grace is part of
+// "restore valid standing state" rather than a new mechanic.
+export function respawnPlayer(game, player, x, y) {
+  const roster = ROSTER[player.character];
+  player.x = x;
+  player.y = y;
+  player.prevY = y;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = false;          // settles onto the authored ground within a step
+  player.facing = 'right';
+  player.hp = effectiveMaxHp(game, player.character);
+  player.maxHp = roster.maxHp;      // §20 bookkeeping fields stay consistent
+  player.maxJumps = roster.maxJumps;
+  player.jumpsUsed = 0;
+  player.coyote = 0;
+  player.jumpBuffer = 0;
+  player.invuln = INVULN_T;         // §22 grace (documented above)
+  player.dead = false;
+  player.deathReason = null;
+  player.dashT = 0;
+  player.dashDir = 1;
+  player.dashFlight = false;
+  player.dashHits.length = 0;
+  player.slamActive = false;
+  player.shieldT = 0;
+  player.specialPressAt = null;
+  player.specialResolved = true;
+  player.animTime = 0;
+  player.runTime = 0;
+  player.lastJumpAt = -1;
+  player.lastLandAt = game.gameTime;     // grounded presentation from the first frame
+  player.attackAnimT = 0;
+  player.specialAnimT = 0;
+  player.trail.length = 0;
+  player.airApexY = y;
+  return player;
 }
 
 // §20 CHARACTER SWITCHING. Returns true when the switch actually happened.

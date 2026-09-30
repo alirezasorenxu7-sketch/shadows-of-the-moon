@@ -615,7 +615,13 @@ def test_horizontal_collision(browser):
 def test_fall_death(browser):
     """SPEC §79.12: without an active checkpoint, falling past the active
     chapter's groundY + 400 (amended §43) triggers the final death flow
-    (frozen entity, recorded death, input ignored, no auto-reset)."""
+    (frozen entity, recorded death, input ignored, no auto-reset).
+
+    Phase 11 note: a checkpoint is now active from run start (§44 — chapter
+    entry auto-activates it), so the test's OWN precondition ("without an
+    active checkpoint") is set up through the §73 clearCheckpoint harness
+    facility before the fall. In live play the no-checkpoint state is the
+    documented fallback (§79.12/§45's Do-NOT list references it)."""
     name = "test: fall death final flow (§79.12)"
     ctx = _new_test_context(browser)
     page = _boot_page(ctx)
@@ -623,9 +629,17 @@ def test_fall_death(browser):
     page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
     page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
     try:
+        # §79.12's own precondition: no active checkpoint (§73 harness).
+        # Wait a frame — the metrics snapshot mutates in place per render.
+        page.evaluate("() => window.__SOM_TEST_API__.clearCheckpoint()")
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.activeCheckpoint === null",
+            timeout=3000)
         m = _metrics(page)
         if m["activeCheckpoint"] is not None:
             return Result(name, "FAIL", "an active checkpoint exists — test requires none (§79.12)")
+        if m["respawnCount"] != 0:
+            return Result(name, "FAIL", f"respawnCount {m['respawnCount']} at boot (expected 0)")
         if m["chapter"]["id"] != "1-1" or m["chapter"]["act"] != 1:
             return Result(name, "FAIL",
                           f"chapter metrics wrong at spawn: {m['chapter']} (expected 1-1 / act 1)")
@@ -1432,9 +1446,21 @@ def test_persistence(browser):
             problems.append(f"checkpoint crossing wrote the save (saveWrites {m['saveWrites']})")
         if s4 != s3:
             problems.append("checkpoint crossing changed the save content")
+        # §44 Phase 11: the crossing ACTIVATES the mid checkpoint as the
+        # active respawn (run-local gameplay state) — while never persisting.
+        if (m["activeCheckpoint"] or {}).get("id") != "c1_2_cp_mid":
+            problems.append(f"mid-chapter checkpoint not activated on crossing: "
+                            f"{m['activeCheckpoint']} (§44)")
 
         # ---- 4. final game-over writes the save (bank + rank) --------------
-        page.evaluate("() => window.__SOM_TEST_API__.teleport(4700, 1200)")  # below ground
+        # §79.12's precondition holds here too: clear the active checkpoint
+        # (the run-start 1-1 + the crossed 1-2 mid are both live) so the fall
+        # takes the FINAL death flow instead of a §45 respawn. Both harness
+        # calls run in ONE JS task — a fixed step can never interleave and
+        # re-activate the mid checkpoint (the player stands inside its rect).
+        page.evaluate(
+            "() => { window.__SOM_TEST_API__.clearCheckpoint();"
+            " window.__SOM_TEST_API__.teleport(4700, 1200); }")  # below ground
         page.wait_for_function(
             "() => window.__SOM_METRICS__ && window.__SOM_METRICS__.screen === 'dead'",
             timeout=5000)
@@ -1505,6 +1531,120 @@ def test_persistence(browser):
         ctx.close()
 
 
+def test_checkpoint_duplicate_score(browser):
+    """SPEC §79.9: Checkpoint duplicate-score protection.
+    1. defeat specific authored enemy
+    2. record score
+    3. activate checkpoint
+    4. die
+    5. respawn
+    6. defeated enemy NOT active
+    7. no second kill score possible
+
+    The checkpoint is active from run start (§44: entering 1-1 auto-activates
+    its chapter-start checkpoint), so the clause order holds with the death
+    arriving while a checkpoint is live. The same pass verifies the §45
+    respawn contract the clause rides on: respawn at the checkpoint, HP to
+    effective max, the respawn chapter's live enemies reset (defeated stay
+    omitted, §28), run progress preserved, no localStorage write, no death
+    screen — plus the §49 death streak counting."""
+    name = "test: Checkpoint duplicate-score protection (§79.9)"
+    ctx = _new_test_context(browser)
+    page = _boot_page(ctx)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on("console", lambda m: errors.append(f"console: {m.text}") if m.type == "error" else None)
+    try:
+        problems: list[str] = []
+
+        def metrics():
+            return _metrics(page)
+
+        def find(eid):
+            for e in metrics()["enemies"]:
+                if e["id"] == eid:
+                    return e
+            return None
+
+        # 3) checkpoint active from run start (§44 — step 3 precedes the death)
+        m = metrics()
+        if m["activeCheckpoint"] is None or m["activeCheckpoint"]["id"] != "c1_1_cp_start":
+            problems.append(f"run-start checkpoint wrong: {m['activeCheckpoint']} (expected c1_1_cp_start)")
+        save_writes_before = m["saveWrites"]
+
+        # 1) defeat a specific authored enemy through the organic §59 path
+        if not page.evaluate("() => window.__SOM_TEST_API__.forceKill('c1_1_enemy_001')"):
+            problems.append("forceKill could not find c1_1_enemy_001")
+        page.wait_for_timeout(250)
+
+        # 2) record the score (base 100 — force-kill is not a stomp, no combo)
+        m = metrics()
+        recorded_score = m["score"]
+        recorded_kills = m["kills"]
+        if recorded_score != 100 or recorded_kills != 1:
+            problems.append(f"post-kill score/kills = {recorded_score}/{recorded_kills}, expected 100/1")
+        if "c1_1_enemy_001" not in m["defeatedEnemyIds"]:
+            problems.append("defeated enemy not recorded in defeatedEnemyIds (§28)")
+
+        # 4) die (fall past groundY + 400 while the checkpoint is live)
+        page.evaluate("() => window.__SOM_TEST_API__.teleport(2550, 1200, 0)")
+        page.wait_for_function(
+            "() => window.__SOM_METRICS__.respawnCount >= 1", timeout=6000)
+
+        # 5) respawn per §45: at the checkpoint, full HP, playing, no screen
+        m = metrics()
+        p = m["player"]
+        if m["screen"] != "playing":
+            problems.append(f"screen after death = {m['screen']}, expected 'playing' (§45 no death screen)")
+        if page.locator("#death-screen").is_visible():
+            problems.append("death screen visible after a checkpoint death (§45)")
+        cp = m["activeCheckpoint"]
+        if cp is None or cp["id"] != "c1_1_cp_start":
+            problems.append(f"active checkpoint lost on respawn: {cp}")
+        if abs(p["x"] - 300) > 1 or abs(p["y"] - 594) > 1:
+            problems.append(f"respawn position ({p['x']}, {p['y']}) != checkpoint (300, 594)")
+        if p["dead"]:
+            problems.append("player still dead after respawn")
+        if p["hp"] != 5:
+            problems.append(f"respawn HP {p['hp']} != effective max 5 (§45)")
+        if m["saveWrites"] != save_writes_before:
+            problems.append(f"respawn wrote localStorage (saveWrites {save_writes_before} -> {m['saveWrites']})")
+        if m["actDeathStreak"] != 1:
+            problems.append(f"actDeathStreak after respawn death = {m['actDeathStreak']}, expected 1 (§49)")
+
+        # 6) the defeated enemy is NOT active; the chapter's LIVE enemies reset
+        if find("c1_1_enemy_001") is not None:
+            problems.append("defeated c1_1_enemy_001 is active after respawn (§28)")
+        live = find("c1_1_enemy_002")
+        if live is None:
+            problems.append("live c1_1_enemy_002 missing after respawn (§45 resets live enemies)")
+        elif live["hp"] != live["maxHp"]:
+            problems.append(f"live enemy not reset to full HP: {live['hp']}/{live['maxHp']}")
+        if find("c1_1_miniboss") is None:
+            problems.append("live mini-boss missing after respawn")
+
+        # 7) no second kill score is possible
+        again = page.evaluate("() => window.__SOM_TEST_API__.forceKill('c1_1_enemy_001')")
+        page.wait_for_timeout(200)
+        m = metrics()
+        if again:
+            problems.append("forceKill re-located the defeated enemy after respawn")
+        if m["score"] != recorded_score or m["kills"] != recorded_kills:
+            problems.append(f"second kill score awarded: {recorded_score}/{recorded_kills} -> "
+                            f"{m['score']}/{m['kills']}")
+
+        if errors:
+            problems.append("; ".join(errors[:3]))
+        if problems:
+            return Result(name, "FAIL", "; ".join(str(p) for p in problems))
+        return Result(name, "PASS",
+                      "killed c1_1_enemy_001 (+100), fell with the checkpoint live, respawned "
+                      "at (300,594) full-HP playing with no save write; the defeated enemy "
+                      "stayed omitted and no second award was possible")
+    finally:
+        ctx.close()
+
+
 _IMPLS = {
     "visibility_pause": test_visibility_pause,
     "multi_touch": test_multi_touch,
@@ -1519,6 +1659,7 @@ _IMPLS = {
     "raha_slam": test_raha_slam,
     "fullscreen": test_fullscreen,
     "persistence": test_persistence,
+    "checkpoint_duplicate_score": test_checkpoint_duplicate_score,
 }
 for _t in TESTS:
     if _t["id"] in _IMPLS:

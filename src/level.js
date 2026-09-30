@@ -9,6 +9,15 @@
 //   system placeholders (authored: false — length + chapter-start checkpoint
 //   only) and are fully authored in Phase 12.
 //
+// PHASE 11 STORYTELLING PLACEMENT (§67/§68): authored chapters carry
+//   stones     [{id, x, y, text}]  — 3 per chapter (intro + two mid)
+//   flashback  {id, x, text}        — 1 per chapter, once per run
+//   npc        {id, x, y, dialogue} — 1 per chapter (§68 Aram-only)
+//   storyBeat  {key, x}             — positioned cinematic beats (1-2)
+//   The TEXTS all live in src/story.js (the §67 corpus covers all 15
+//   chapters day one); unauthored chapters get their placement with the
+//   Phase 12 chapter authoring.
+//
 // COORDINATE CONVENTIONS (world pixels, absolute):
 //   platforms  {x, y, w, h}            — top-left, solid AABB (breakable:
 //                                         breakable:true + id, §51)
@@ -26,6 +35,12 @@
 // (unauthoredChapter below) — static literals in spirit (§70), zero
 // randomness: lengths, names, and checkpoints are fixed literals in the
 // table passed to it.
+
+// §67 narrative corpus (Phase 11): the intro inscription + completeText of
+// EVERY chapter (all 15) come from the story module — the §51 fields are
+// filled day one; the world PLACEMENT for unauthored chapters arrives with
+// Phase 12.
+import { INSCRIPTIONS, FLASHBACKS, NPC_DIALOGUES, COMPLETE_TEXTS } from './story.js';
 
 // Ground baseline for all Phase-5-authored chapters (camera rest anchor
 // CAMERA_REST_GROUND_SCREEN_Y matches this line — see constants.js).
@@ -54,8 +69,15 @@ function unauthoredChapter(id, act, name, length, startX) {
     midCheckpoints: Object.freeze([]),
     miniBoss: null,
     dressing: Object.freeze([]),   // §55 Phase 10: authored with the chapter
-    inscription: null,       // authored with the chapter (Phase 12)
-    completeText: null,
+    // §67/§51: texts are authored for ALL chapters (story.js corpus); the
+    // intro stone / flashback / NPC PLACEMENT for unauthored chapters
+    // arrives with the Phase 12 chapter authoring.
+    inscription: INSCRIPTIONS[id][0],
+    completeText: COMPLETE_TEXTS[id],
+    stones: Object.freeze([]),
+    flashback: null,
+    npc: null,
+    storyBeat: null,
   });
 }
 
@@ -131,6 +153,17 @@ export const LEVEL_DATA = Object.freeze({
       ]),
       inscription: 'This is the forest of Midnight. The moon was stolen...',
       completeText: 'The first steps are taken. Midnight remembers your footprints.',
+      // §67 Phase 11 story placement — three stones (intro at the chapter
+      // mouth + two mid), one flashback trigger, one §68 NPC statue; all on
+      // safe flat ground stretches of the tutorial chapter.
+      stones: Object.freeze([
+        Object.freeze({ id: 'c1_1_stone_001', x: 450, y: GROUND_Y, text: INSCRIPTIONS['1-1'][0] }),
+        Object.freeze({ id: 'c1_1_stone_002', x: 950, y: GROUND_Y, text: INSCRIPTIONS['1-1'][1] }),
+        Object.freeze({ id: 'c1_1_stone_003', x: 2300, y: GROUND_Y, text: INSCRIPTIONS['1-1'][2] }),
+      ]),
+      flashback: Object.freeze({ id: 'c1_1_fb_001', x: 1880, text: FLASHBACKS['1-1'] }),
+      npc: Object.freeze({ id: 'c1_1_npc_001', x: 2000, y: GROUND_Y, dialogue: NPC_DIALOGUES['1-1'] }),
+      storyBeat: null,
     }),
 
     // ---- Chapter 1-2 "The Deepening Wood" ---------------------------------
@@ -207,6 +240,18 @@ export const LEVEL_DATA = Object.freeze({
       ]),
       inscription: 'The trees grow older toward the heart. Few who enter return.',
       completeText: 'The wood deepens, but you walk it together.',
+      // §67 Phase 11 story placement — the 1-2 UNLOCK STORY BEAT (amended
+      // §20/§67: Sara and Raha fight first — a misunderstanding — then
+      // realize they share a goal; Raha is not yet unlocked here, so the
+      // beat is a positioned cinematic, not an unlock event).
+      stones: Object.freeze([
+        Object.freeze({ id: 'c1_2_stone_001', x: 3550, y: GROUND_Y, text: INSCRIPTIONS['1-2'][0] }),
+        Object.freeze({ id: 'c1_2_stone_002', x: 5100, y: GROUND_Y, text: INSCRIPTIONS['1-2'][1] }),
+        Object.freeze({ id: 'c1_2_stone_003', x: 6550, y: GROUND_Y, text: INSCRIPTIONS['1-2'][2] }),
+      ]),
+      flashback: Object.freeze({ id: 'c1_2_fb_001', x: 5800, text: FLASHBACKS['1-2'] }),
+      npc: Object.freeze({ id: 'c1_2_npc_001', x: 4950, y: GROUND_Y, dialogue: NPC_DIALOGUES['1-2'] }),
+      storyBeat: Object.freeze({ key: 'beat12', x: 3700 }),
     }),
 
     // ---- Chapter 1-3 "The Edge of the Forest" ------------------------------
@@ -275,6 +320,16 @@ export const LEVEL_DATA = Object.freeze({
       ]),
       inscription: 'Beyond these trees the road runs dark. Walk it together.',
       completeText: 'The forest ends. The dark road begins.',
+      // §67 Phase 11 story placement — Raha's formal-join chapter (the
+      // unlock cinematic itself fires from the §20 unlock authority).
+      stones: Object.freeze([
+        Object.freeze({ id: 'c1_3_stone_001', x: 7150, y: GROUND_Y, text: INSCRIPTIONS['1-3'][0] }),
+        Object.freeze({ id: 'c1_3_stone_002', x: 7700, y: GROUND_Y, text: INSCRIPTIONS['1-3'][1] }),
+        Object.freeze({ id: 'c1_3_stone_003', x: 9350, y: GROUND_Y, text: INSCRIPTIONS['1-3'][2] }),
+      ]),
+      flashback: Object.freeze({ id: 'c1_3_fb_001', x: 8460, text: FLASHBACKS['1-3'] }),
+      npc: Object.freeze({ id: 'c1_3_npc_001', x: 9100, y: GROUND_Y, dialogue: NPC_DIALOGUES['1-3'] }),
+      storyBeat: null,
     }),
 
     // ---- Chapters 1-4 .. 3-5 — system placeholders (authored in Phase 12) --
